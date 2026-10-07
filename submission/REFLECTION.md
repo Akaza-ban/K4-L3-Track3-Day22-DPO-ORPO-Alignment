@@ -67,7 +67,8 @@ Từ `data/eval/judge_summary.json`:
 Judge: ______ · sanity accuracy: ______ · `score_length_spearman` (RM) hoặc position consistency (API): ______
 
 _CI có chứa 0.5 không? Judge có đáng tin trên tiếng Việt không (sanity set)? DPO thắng vì câu trả lời tốt
-hơn hay vì dài hơn? Judge RM cùng họ với RM đã gán nhãn dữ liệu: điều đó ảnh hưởng kết luận thế nào?
+hơn hay vì dài hơn? Hai RM trong hội đồng (`per_judge`) có cho win rate gần nhau không? Nếu judge Qwen3 cho DPO thắng
+cao hơn hẳn judge Llama, điều đó nói gì về preference leakage?
 Chọn 2 ví dụ cụ thể (1 helpfulness, 1 safety) và giải thích._
 
 _Trả lời ở đây._

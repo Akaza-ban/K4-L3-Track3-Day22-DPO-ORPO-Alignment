@@ -14,7 +14,7 @@ on the evidence and your interpretation, not on absolute scores.
 | 3 | `03_dpo_train` | Train **and** held-out reward curves plotted, chosen and rejected separately | 10 |
 | 3 | `03_dpo_train` | Diagnosis (INTENDED / LIKELIHOOD DISPLACEMENT / FAILURE / AMBIGUOUS) explained in REFLECTION §3 | 8 |
 | 4 | `04_compare_and_eval` | 8 fixed prompts side by side + ≥ 50 held-out prompts generated | 6 |
-| 4 | `04_compare_and_eval` | Automatic judge (local reward model by default): win rate with 95% CI, sanity accuracy, longer-answer-won and length-matched win rate reported | 10 |
+| 4 | `04_compare_and_eval` | Automatic judge (panel of two local reward models by default): win rate with 95% CI, sanity accuracy, longer-answer-won and length-matched win rate reported | 10 |
 | — | Reflection | §3, §4 and §6 answered with your own numbers (≥ 150 words on §3 + §6) | 20 |
 | — | Reproducible | `make pipeline` (or Colab Run-all) works from a clean setup | 5 |
 | — | Verify | `make verify` exits 0 | 5 |
@@ -36,8 +36,8 @@ chosen/rejected split are the evidence.
 
 - A CI that contains 0.5 means "no detectable difference", not "DPO wins".
 - Reward-model judge: sanity accuracy below 80% on the Vietnamese pairs means its verdicts are unreliable.
-  The judge belongs to the same reward-model family that labelled the training data; a good answer names
-  this circularity.
+  Both panel judges come from the lab (Skywork) whose reward model labelled the training data, and the Qwen3
+  judge shares a family with the data generator; a good answer names this and compares `per_judge`.
 - API judge: low position consistency means the judge is unreliable for this pair of models.
 - If the longer answer almost always wins and DPO answers are longer, discuss length hacking.
 

@@ -44,9 +44,9 @@ Plan for **40 GB free** locally. Colab gives ~100 GB.
 
 ## 4. Network
 
-Hugging Face for models and datasets. NB4's default judge is a local reward model (downloaded from
-Hugging Face, ~8 GB). The optional API judge needs HTTPS to the chosen provider; without its key NB4 falls
-back to the reward model.
+Hugging Face for models and datasets. NB4's default judge is a panel of two local reward models (downloaded from
+Hugging Face, ~8 GB + ~6.5 GB, loaded one at a time). The optional API judge needs HTTPS to the chosen provider; without its key NB4 falls
+back to the reward-model panel.
 
 ## 5. Apple Silicon
 

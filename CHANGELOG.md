@@ -41,8 +41,10 @@ lint và kiểm tra tĩnh; thời gian và VRAM trong tài liệu là ước tí
 
 ### Chấm tự động và dữ liệu
 
-- NB4 chấm **tự động**, mặc định bằng reward model local `Skywork/Skywork-Reward-V2-Qwen3-4B` (Apache-2.0,
-  không cần API key). Trước khi chấm, RM phải xếp đúng ≥ 80% bộ 12 cặp tiếng Việt hiển nhiên (4 cặp có câu
+- NB4 chấm **tự động**, mặc định bằng hội đồng hai reward model local `Skywork-Reward-V2-Qwen3-4B` và
+  `Skywork-Reward-V2-Llama-3.2-3B` (không cần API key); DPO chỉ thắng khi cả hai đồng ý. Lý do: nhãn sailor2
+  do RM Skywork gán trên câu trả lời của Sailor2 (gốc Qwen2.5), một judge đơn lẻ cùng họ dễ bị preference
+  leakage (Li et al., ICLR 2026). Báo thêm `per_judge` và `judge_agreement`. Trước khi chấm, RM phải xếp đúng ≥ 80% bộ 12 cặp tiếng Việt hiển nhiên (4 cặp có câu
   sai dài hơn). Judge API hai chiều thành tuỳ chọn (thêm Gemini qua endpoint tương thích OpenAI); thiếu key
   thì quay về RM. Bỏ phiếu chấm tay.
 - Báo thêm win rate trên các cặp dài gần bằng nhau, tương quan Spearman điểm RM–độ dài, và tỉ lệ đồng ý

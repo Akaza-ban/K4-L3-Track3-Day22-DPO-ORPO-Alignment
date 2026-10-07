@@ -145,11 +145,16 @@ LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", 
 GRPO_DATASET = _env("GRPO_DATASET", "vuongtsc/vi-gsm8k-agentic")
 
 # --- Judge ----------------------------------------------------------------
-# Default "rm": a local reward model (Apache-2.0, ~8 GB fp16, fits a T4), no API key.
-# Its score is per answer, so it has no A/B position bias. Smaller option:
-# Skywork/Skywork-Reward-V2-Qwen3-1.7B.
+# Default "rm": a panel of local reward models, no API key. Scores are per answer,
+# so there is no A/B position bias. The models come from different families
+# (loaded one at a time, so each only has to fit a T4 on its own); a pair is a DPO
+# win only if every judge agrees. Comma-separated; one model also works.
+# The Llama judge shares no base model with the data generator (Sailor2, from
+# Qwen2.5) or the labeller (Skywork-Reward-Gemma-2-27B); both judges are
+# Skywork V2, trained on SynPref-40M rather than the labeller's data.
 JUDGE_PROVIDER = _env("JUDGE_PROVIDER", "rm").lower()  # rm | openai | anthropic | gemini
-JUDGE_RM_MODEL = _env("JUDGE_RM_MODEL", "Skywork/Skywork-Reward-V2-Qwen3-4B")
+_RM_PANEL = "Skywork/Skywork-Reward-V2-Qwen3-4B,Skywork/Skywork-Reward-V2-Llama-3.2-3B"
+JUDGE_RM_MODELS = [m.strip() for m in _env("JUDGE_RM_MODELS", _RM_PANEL).split(",") if m.strip()]
 # API judges have no default model id on purpose: ids change faster than the lab,
 # so the student picks a current one and records it in REFLECTION.
 JUDGE_MODEL = _env("JUDGE_MODEL", "")

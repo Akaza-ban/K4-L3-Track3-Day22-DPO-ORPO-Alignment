@@ -11,10 +11,10 @@
 # > - 8 prompt cố định (4 hữu ích, 4 an toàn) để đọc bằng mắt;
 # > - `JUDGE_PROMPTS` prompt (≥50) lấy từ tập eval held-out của NB2.
 # >
-# > **Judge (tự động, không cần API key):** mặc định là reward model chạy local
-# > (`Skywork/Skywork-Reward-V2-Qwen3-4B`, Apache-2.0). Nó chấm điểm từng câu trả lời riêng,
-# > nên không có thiên vị vị trí A/B. Trước khi chấm, nó phải qua bộ kiểm tra 12 cặp
-# > tiếng Việt hiển nhiên (≥ 80% đúng).
+# > **Judge (tự động, không cần API key):** mặc định là hội đồng reward model chạy local, khác họ
+# > nhau (`JUDGE_RM_MODELS`). RM chấm điểm từng câu trả lời riêng, nên không có thiên vị vị trí A/B.
+# > Mỗi RM phải qua bộ kiểm tra 12 cặp tiếng Việt hiển nhiên (≥ 80% đúng); DPO chỉ thắng một cặp
+# > khi mọi RM đồng ý.
 # > Tuỳ chọn: judge API (`JUDGE_PROVIDER=gemini|openai|anthropic` + `JUDGE_MODEL`) chấm mỗi cặp
 # > **hai lần** đổi chỗ A/B; lệch nhau tính hoà.
 # > Cả hai đều báo khoảng tin cậy 95% (bootstrap), tỉ lệ "câu dài hơn thắng" và win rate trên
@@ -133,57 +133,90 @@ plt.show()
 # %% [markdown]
 # ## 3. Chấm tự động
 #
-# **Reward model (mặc định).** Hai model sinh câu trả lời đã được giải phóng ở §1, nên RM
-# (~8 GB fp16) vừa T4. Thiếu VRAM thì đặt `JUDGE_RM_MODEL=Skywork/Skywork-Reward-V2-Qwen3-1.7B`.
+# **Hội đồng reward model (mặc định).** Hai model sinh câu trả lời đã được giải phóng ở §1; các RM
+# được nạp **lần lượt**, nên mỗi RM chỉ cần vừa T4 một mình.
 #
-# Hai điểm cần ghi vào REFLECTION khi đọc kết quả RM:
-# - **Vòng lặp:** nhãn chosen/rejected của `sea-ultrafeedback-onpolicy` cũng do một RM họ
-#   Skywork gán. DPO học theo sở thích của RM đó, nên RM cùng họ dễ "đồng ý" với DPO hơn người.
-# - **Cùng họ Qwen3** với model đang train. Judge API khác họ (Gemini) là phép kiểm tra chéo.
+# Vì sao không dùng một RM? Nhãn chosen/rejected của `sea-ultrafeedback-onpolicy` do
+# `Skywork-Reward-Gemma-2-27B` gán, trên câu trả lời do Sailor2 (gốc Qwen2.5) sinh ra. Judge có
+# quan hệ với model gán nhãn hoặc model sinh dữ liệu (cùng lab, cùng họ) có xu hướng chấm cao model
+# học từ dữ liệu đó: *preference leakage* (Li et al., ICLR 2026). Cách giảm: thêm judge khác họ và
+# chỉ tính DPO thắng khi **mọi** judge đồng ý (hội đồng, Verga et al. 2024); bất đồng tính hoà.
+#
+# Hội đồng mặc định: `Skywork-Reward-V2-Qwen3-4B` (cùng họ Qwen với Sailor2 và với policy) và
+# `Skywork-Reward-V2-Llama-3.2-3B` (base Llama, không chung base với model sinh dữ liệu hay RM gán
+# nhãn). Cả hai là Skywork V2, train trên SynPref-40M chứ không phải dữ liệu của RM gán nhãn, nhưng
+# vẫn **cùng lab** với RM gán nhãn: đây là hạn chế còn lại. Chưa có RM nhỏ ngoài Skywork đọc tốt
+# tiếng Việt (InternLM2-1.8B-reward không nạp được với transformers 5). Đo trên 100 cặp tiếng Việt của
+# sailor2 (T4): cả hai xếp đúng 12/12 cặp sanity; đồng ý với nhãn sailor2 88% (Qwen3) và 84% (Llama);
+# đồng ý với nhau 82%. `per_judge` và `judge_agreement` cho thấy hai judge lệch nhau trên output của bạn.
+#
+# RM nào trượt bộ sanity tiếng Việt (< 80%) bị loại khỏi hội đồng, trừ khi tất cả đều trượt.
 #
 # **Judge API (tuỳ chọn).** Đặt `JUDGE_PROVIDER` + `JUDGE_MODEL` + key. Thiếu key thì notebook
-# quay về RM, không dừng. Chạy lần lượt cả hai judge: kết quả lưu riêng
-# (`judge_results_rm.json`, `judge_results_api.json`) và §4 báo tỉ lệ hai judge đồng ý, nếu cả
-# hai chấm cùng một `side_by_side.jsonl` (sinh greedy nên thường trùng giữa các lần chạy).
+# quay về hội đồng RM, không dừng. Chạy lần lượt cả hai: kết quả lưu riêng (`judge_results_rm.json`,
+# `judge_results_api.json`) và §4 báo tỉ lệ đồng ý (`cross_judge`) nếu cả hai chấm cùng một
+# `side_by_side.jsonl` (sinh greedy nên thường trùng giữa các lần chạy).
 
 # %%
 provider = C.JUDGE_PROVIDER
 if provider != "rm" and not J.has_judge_key(provider):
-    print(f"JUDGE_PROVIDER={provider} but its API key is missing → local reward model.")
+    print(f"JUDGE_PROVIDER={provider} but its API key is missing → local reward-model panel.")
     provider = "rm"
 
-sanity = None
+sanity, per_judge = {}, {}
 if provider == "rm":
-    score = J.make_rm_scorer(C.JUDGE_RM_MODEL)
-    sanity = J.sanity_accuracy(score)
-    print(f"Vietnamese sanity set: {sanity:.0%} of {len(J.SANITY_PAIRS)} obvious pairs ranked correctly")
-    if sanity < 0.8:
-        print("WARNING: the reward model fails obvious Vietnamese pairs; treat its verdicts with caution.")
-    judged = [{**r, **J.rm_judge_pair(r["prompt"], r["sft"], r["dpo"], score)} for r in records]
-    judge_name, kind = f"rm:{C.JUDGE_RM_MODEL}", "rm"
-    del score
-    MD.cleanup()
+    for name in C.JUDGE_RM_MODELS:
+        score = J.make_rm_scorer(name)
+        sanity[name] = J.sanity_accuracy(score)
+        print(f"{name}: Vietnamese sanity {sanity[name]:.0%} of {len(J.SANITY_PAIRS)} obvious pairs")
+        per_judge[name] = [{**r, **J.rm_judge_pair(r["prompt"], r["sft"], r["dpo"], score)} for r in records]
+        del score
+        MD.cleanup()
+    panel = [n for n in per_judge if sanity[n] >= 0.8] or list(per_judge)
+    if len(panel) < len(per_judge):
+        print(f"Dropped from the panel (sanity < 80%): {sorted(set(per_judge) - set(panel))}")
+    if min(sanity[n] for n in panel) < 0.8:
+        print("WARNING: no reward model passes the Vietnamese sanity set; treat verdicts with caution.")
+    judged = [
+        {**r, **J.panel_record([per_judge[n][i] for n in panel])} for i, r in enumerate(records)
+    ]
+    judge_name, kind = "rm-panel:" + "+".join(panel), "rm"
 else:
     call = J.make_caller(provider, C.JUDGE_MODEL)
     judged = [{**r, **J.judge_pair(r["prompt"], r["sft"], r["dpo"], call)} for r in records]
     judge_name, kind = f"{provider}:{C.JUDGE_MODEL}", "api"
 (C.EVAL_DIR / f"judge_results_{kind}.json").write_text(
-    json.dumps({"judge": judge_name, "outputs_sha256": OUTPUTS_SHA, "records": judged}, ensure_ascii=False, indent=2)
+    json.dumps(
+        {"judge": judge_name, "outputs_sha256": OUTPUTS_SHA, "records": judged, "per_judge": per_judge},
+        ensure_ascii=False,
+        indent=2,
+    )
 )
 
 # %% [markdown]
 # ## 4. Tổng hợp
 
 # %%
+def splits(rows: list[dict]) -> dict:
+    return {
+        "overall": J.summarize(rows, seed=C.SEED),
+        **{c: J.summarize([r for r in rows if r["category"] == c], seed=C.SEED) for c in ("heldout", "helpfulness", "safety")},
+    }
+
+
 summary = {
     "judge": judge_name,
     "outputs_sha256": OUTPUTS_SHA,
-    "sanity_accuracy": sanity,
-    "overall": J.summarize(judged, seed=C.SEED),
-    "heldout": J.summarize([r for r in judged if r["category"] == "heldout"], seed=C.SEED),
-    "helpfulness": J.summarize([r for r in judged if r["category"] == "helpfulness"], seed=C.SEED),
-    "safety": J.summarize([r for r in judged if r["category"] == "safety"], seed=C.SEED),
+    # The weakest panel member; verify.py warns below 0.8.
+    "sanity_accuracy": min(sanity[n] for n in panel) if sanity else None,
+    "sanity": sanity or None,
+    **splits(judged),
 }
+if per_judge:
+    summary["per_judge"] = {n: J.summarize([r for r in rows if r["category"] == "heldout"], seed=C.SEED) for n, rows in per_judge.items()}
+    names = list(per_judge)
+    if len(names) >= 2:
+        summary["judge_agreement"] = {"judges": names[:2], **J.agreement(per_judge[names[0]], per_judge[names[1]])}
 other = C.EVAL_DIR / f"judge_results_{'api' if kind == 'rm' else 'rm'}.json"
 if other.exists():
     saved = json.loads(other.read_text())
@@ -199,6 +232,8 @@ print(json.dumps(summary, ensure_ascii=False, indent=2))
 #
 # - Khoảng tin cậy chứa 0.5 ⇒ chưa đủ bằng chứng DPO tốt hơn SFT.
 # - `sanity_accuracy` < 0.8 ⇒ RM không đọc tốt tiếng Việt, đừng tin win rate.
+# - `per_judge`: win rate của từng RM trên held-out. judge Qwen3 cho DPO thắng cao hơn hẳn judge Llama ⇒ dấu hiệu
+#   preference leakage; tin win rate của hội đồng (bảo thủ) hơn. `judge_agreement` thấp ⇒ RM bất đồng nhiều.
 # - `longer_answer_won_frac` gần 1 và DPO dài hơn SFT ⇒ có thể DPO chỉ học viết dài (so với NB2 §2).
 #   Xem thêm `length_matched_win_rate` (chỉ các cặp dài gần bằng nhau) và `score_length_spearman`
 #   (điểm RM tương quan với độ dài; gần 1 là RM đang chấm độ dài).

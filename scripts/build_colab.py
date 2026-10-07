@@ -109,7 +109,7 @@ def render(tier: str) -> dict:
         code(
             "import os\n"
             f'os.environ["COMPUTE_TIER"] = "{tier}"\n'
-            "# NB4 judges automatically with a local reward model (no key needed).\n"
+            "# NB4 judges automatically with a panel of two local reward models (no key needed).\n"
             "# Optional API judge as a cross-check (two A/B orders):\n"
             '# os.environ["JUDGE_PROVIDER"] = "gemini"   # or "openai" / "anthropic"\n'
             '# os.environ["JUDGE_MODEL"] = "<current model id>"\n'

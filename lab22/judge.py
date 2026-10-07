@@ -3,6 +3,9 @@
 The default judge is a local reward model (no API key): it scores each
 (prompt, answer) on its own, so there is no A/B position to be biased by. It
 is checked first on a small Vietnamese sanity set with obvious answers.
+Several reward models from unrelated families form a panel (`panel_record`):
+a pair is a DPO win only when all of them agree, which limits preference
+leakage from a judge related to the model that labelled the training data.
 
 The optional LLM judge fixes the biases of the original lab judge:
 - every pair is judged twice with A/B swapped; a win counts only when both
@@ -213,6 +216,19 @@ def rm_record(sft_score: float, dpo_score: float) -> dict:
 
 def rm_judge_pair(prompt: str, sft: str, dpo: str, score: Scorer) -> dict:
     return rm_record(score(prompt, sft), score(prompt, dpo))
+
+
+def panel_record(verdicts: list[dict]) -> dict:
+    """Combine several judges' verdicts on one pair: a win needs every judge to agree.
+
+    Judges related to the training data (same lab or model family) tend to favour
+    the student trained on it; a unanimous panel of unrelated judges damps that.
+    Disagreement counts as a tie, so the panel win rate is a conservative estimate.
+    """
+    winners = {v["winner"] for v in verdicts if v["winner"] != "failed"}
+    if not winners:
+        return {"winner": "failed", "position_consistent": None}
+    return {"winner": winners.pop() if len(winners) == 1 else "tie", "position_consistent": None}
 
 
 # Obvious pairs: (prompt, good answer, bad answer). Four bad answers are the

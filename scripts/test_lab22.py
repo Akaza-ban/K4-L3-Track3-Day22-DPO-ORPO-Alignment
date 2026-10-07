@@ -149,6 +149,15 @@ def test_summarize_without_records_is_not_judged():
     assert J.summarize([]) == {"n": 0, "n_failed": 0, "status": "not judged"}
 
 
+def test_panel_record_needs_unanimous_judges():
+    dpo, sft, tie, failed = ({"winner": w} for w in ("dpo", "sft", "tie", "failed"))
+    assert J.panel_record([dpo, dpo])["winner"] == "dpo"
+    assert J.panel_record([dpo, sft])["winner"] == "tie"
+    assert J.panel_record([dpo, tie])["winner"] == "tie"
+    assert J.panel_record([dpo, failed])["winner"] == "dpo"
+    assert J.panel_record([failed, failed])["winner"] == "failed"
+
+
 def test_rm_record_picks_higher_score_and_has_no_position():
     assert J.rm_record(0.2, 1.5)["winner"] == "dpo"
     assert J.rm_record(1.5, 0.2)["winner"] == "sft"

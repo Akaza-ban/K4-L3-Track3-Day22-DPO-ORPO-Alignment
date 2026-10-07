@@ -68,7 +68,7 @@ make test | verify | clean
 | `02_preference_data` | `sailor2/sea-ultrafeedback-onpolicy` lọc tiếng Việt → format hội thoại của TRL; tách train/held-out **theo prompt**; đo thiên vị độ dài | không prompt nào nằm ở cả hai phía; `02b-pref-length.png` |
 | `03_dpo_train` | `DPOTrainer` trên `models/sft-merged` + LoRA mới, lr 5e-6, β 0.1, đánh giá trên held-out; chẩn đoán đường reward | `03-dpo-reward-curves.png`; `dpo_metrics.json` có chẩn đoán |
 | `03b_dpo_variants` (bonus) | Cùng dữ liệu, chỉ đổi loss: DPO, RPO, DPO chuẩn hoá độ dài, LD-DPO, ORPO | `03b-variants.png` |
-| `04_compare_and_eval` | 8 prompt cố định + ≥ 50 prompt held-out; **chấm tự động** bằng reward model local (không cần API key, có bộ sanity tiếng Việt) hoặc judge API hai chiều; CI 95%, "câu dài thắng", win rate cặp dài gần bằng | `judge_summary.json` |
+| `04_compare_and_eval` | 8 prompt cố định + ≥ 50 prompt held-out; **chấm tự động** bằng hội đồng 2 reward model local khác họ (không cần API key, có bộ sanity tiếng Việt, giảm preference leakage) hoặc judge API hai chiều; CI 95%, "câu dài thắng", win rate cặp dài gần bằng | `judge_summary.json` |
 | `05_merge_deploy_gguf` (bonus) | Load SFT+**DPO** ở 16-bit → GGUF Q4_K_M → so câu trả lời HF vs GGUF | `deploy_meta.json` |
 | `06_benchmark` (bonus) | lm-eval có chat template: IFEval, GSM8K, Global-MMLU-vi; limit tính theo subtask; có stderr | `07-benchmark-comparison.png` |
 | `07_grpo_bonus` (bonus) | GRPO với reward kiểm chứng được: bài toán tiếng Việt `vuongtsc/vi-gsm8k-agentic`, chấm đáp số (đọc được `1.440`, `2,5`) | `08-grpo-reward.png` |
@@ -149,13 +149,15 @@ Xem [`BONUS-CHALLENGE.md`](BONUS-CHALLENGE.md) · [`BONUS-CHALLENGE-EN.md`](BONU
 - `sailor2/sea-ultrafeedback-onpolicy`: dataset card không ghi license, nhưng bài báo Sailor2
   ([arXiv 2502.12982](https://arxiv.org/abs/2502.12982), Bảng 1) công bố model, dữ liệu và code theo
   **Apache-2.0**. Prompt gốc từ UltraFeedback (MIT); nhãn chosen/rejected do reward model Skywork gán.
-- `vuongtsc/vi-gsm8k-agentic` (NB7): MIT. Lời giải do các LLM sinh rồi lọc; xem dataset card.
-- `Skywork/Skywork-Reward-V2-Qwen3-4B` (judge NB4): Apache-2.0.
+- `vuongtsc/vi-gsm8k-agentic` (NB7): MIT, tác giả Trần Đình Minh Vương (CAIR, VinUniversity). Lời giải do các
+  LLM sinh rồi lọc; xem dataset card.
+- Judge NB4: `Skywork/Skywork-Reward-V2-Qwen3-4B` (Apache-2.0) và `Skywork/Skywork-Reward-V2-Llama-3.2-3B`
+  (Llama 3.2 Community License); xem model card.
 - `5CD-AI/Vietnamese-alpaca-cleaned`: xem dataset card trước khi dùng ngoài lớp học.
 - GSM8K (MIT), IFEval (Apache-2.0), Global-MMLU (Apache-2.0).
 
 ## Acknowledgments
 
-Unsloth, TRL, PEFT, lm-evaluation-harness, llama.cpp; Sailor2 (SEA UltraFeedback); 5CD-AI.
+Unsloth, TRL, PEFT, lm-evaluation-harness, llama.cpp; Sailor2 (SEA UltraFeedback); 5CD-AI; Trần Đình Minh Vương, CAIR (vi-gsm8k-agentic).
 
 © VinUniversity AICB program · Track 3 Day 22.
