@@ -7,8 +7,10 @@ lint và kiểm tra tĩnh; thời gian và VRAM trong tài liệu là ước tí
 
 ### Sửa lỗi
 
-- **README gọn cho học viên.** README chỉ còn: bắt đầu trên Colab → 5 bước NB0–NB4 → nộp bài → lỗi hay gặp.
-  Tier, lệnh `make`, tech stack, lỗi chi tiết và giấy phép chuyển sang [`docs/reference.md`](docs/reference.md).
+- **README tiếng Việt, hướng dẫn chi tiết cho học viên.** Giải thích thuật ngữ (SFT, DPO, reward, margin,
+  held-out, giám khảo), từng notebook NB0–NB4 (việc cần làm, cần thấy gì, kết quả), cách đọc đường reward và
+  kết quả chấm, bài phản tư, nộp bài, thang điểm tóm tắt và lỗi hay gặp. Tier, lệnh `make`, tech stack và giấy
+  phép nằm ở [`docs/reference.md`](docs/reference.md).
 - **Dataset SFT bị gỡ.** `5CD-AI/Vietnamese-alpaca-cleaned` trả 401 trên Hub (NB1 báo `DatasetNotFoundError`).
   Thay bằng `saillab/alpaca-vietnamese-cleaned` (cùng cột `instruction`/`input`/`output`, 41,6k mẫu train,
   CC BY-NC); NB1 cắt khoảng trắng thừa của bản dịch.
