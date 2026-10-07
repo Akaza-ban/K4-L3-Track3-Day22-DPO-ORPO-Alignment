@@ -222,7 +222,7 @@ Lab chiếm 30% điểm Daily Lab của Track 3. Bạn được chấm theo **b�
 | | **Tổng phần bắt buộc** | **100** |
 
 Chỉ thấy margin tăng thì **chưa đủ** 10 điểm biểu đồ: cần đường held-out và tách riêng `chosen`/`rejected`.
-Bản đầy đủ (tiếng Anh): [`rubric.md`](rubric.md).
+Bản đầy đủ: [`rubric.md`](rubric.md).
 
 ---
 

@@ -1,55 +1,54 @@
-# Hardware Guide — Pick Your Tier
+# Hướng dẫn phần cứng — chọn tier phù hợp
 
-## 1. VRAM for LoRA DPO
+## 1. VRAM cho DPO với LoRA
 
-With a PEFT/LoRA policy TRL does **not** load a second copy of the model. This lab goes one step
-further and **precomputes** the reference log-probs (`precompute_ref_log_probs=True`) with the
-merged SFT model before training starts, so training holds one 4-bit model plus LoRA weights.
+Khi mô hình đang học dùng PEFT/LoRA, TRL **không** nạp bản sao thứ hai của mô hình làm tham chiếu. Lab này
+còn đi thêm một bước: **tính sẵn** log-xác suất của mô hình tham chiếu (`precompute_ref_log_probs=True`) bằng
+mô hình SFT đã gộp trước khi huấn luyện, nên lúc huấn luyện GPU chỉ giữ một mô hình 4-bit cộng trọng số LoRA.
 
-DPO still costs more than SFT because each step runs the chosen **and** the rejected answer through
-the model: activation memory is roughly double SFT at the same `max_length` and batch. It is not
-"2× the weights".
+DPO vẫn tốn bộ nhớ hơn SFT vì mỗi bước phải đưa cả câu `chosen` **và** câu `rejected` qua mô hình: bộ nhớ
+activation xấp xỉ gấp đôi SFT với cùng `max_length` và batch. Không phải "gấp đôi trọng số".
 
-Rough figures (4-bit base, LoRA r=16, gradient checkpointing; not measured on this exact config):
+Số liệu ước lượng (mô hình gốc 4-bit, LoRA r=16, bật gradient checkpointing; chưa đo trên đúng cấu hình này):
 
-| Base model | Weights (4-bit) | Typical peak during DPO | Fits |
+| Mô hình gốc | Trọng số (4-bit) | Đỉnh bộ nhớ thường gặp khi chạy DPO | Chạy được trên |
 |---|---:|---:|---|
-| Qwen3-4B-Instruct-2507 | ~3 GB | ~9–12 GB at max_len 768, batch 1 | Colab T4 16 GB, RTX 3060 12 GB |
-| Gemma 4 E4B (alternative) | ~4–5 GB | ~11–14 GB | T4 with `MAX_LEN=512` |
-| Qwen3-8B | ~6 GB | ~16–20 GB at max_len 1024, batch 2 | L4 24 GB, A100, RTX 3090/4090 |
+| Qwen3-4B-Instruct-2507 | ~3 GB | ~9–12 GB với max_len 768, batch 1 | Colab T4 16 GB, RTX 3060 12 GB |
+| Gemma 4 E4B (phương án thay thế) | ~4–5 GB | ~11–14 GB | T4 với `MAX_LEN=512` |
+| Qwen3-8B | ~6 GB | ~16–20 GB với max_len 1024, batch 2 | L4 24 GB, A100, RTX 3090/4090 |
 
-Two extra memory peaks to plan for:
+Hai thời điểm bộ nhớ tăng vọt cần lưu ý:
 
-- **NB1 merge** and **NB5 GGUF export** load the model in 16-bit (4B ≈ 8 GB): fine on T4.
-- **NB7 GRPO** generates G answers per prompt; lower `G` or `max_completion_length` if it OOMs.
+- **Bước gộp ở NB1** và **bước xuất GGUF ở NB5** nạp mô hình ở dạng 16-bit (4B ≈ 8 GB): vẫn ổn trên T4.
+- **NB7 GRPO** sinh G câu trả lời cho mỗi câu hỏi; giảm `G` hoặc `max_completion_length` nếu hết bộ nhớ.
 
-## 2. Tier picker
+## 2. Chọn tier
 
-| Available compute | Tier | How |
+| Tài nguyên bạn có | Tier | Cách chạy |
 |---|---|---|
-| Free Colab T4 | **T4** | `colab/Lab22_DPO_T4.ipynb` |
-| Kaggle T4×2 | T4 (one GPU) | `colab/Lab22_DPO_T4.ipynb` |
+| Colab T4 miễn phí | **T4** | `colab/Lab22_DPO_T4.ipynb` |
+| Kaggle T4×2 | T4 (dùng một GPU) | `colab/Lab22_DPO_T4.ipynb` |
 | Colab Pro L4 / A100 | **BigGPU** | `colab/Lab22_DPO_BigGPU.ipynb` |
-| Laptop GPU 12–23 GB | T4 | `setup-laptop.sh` + `make pipeline` |
+| GPU laptop 12–23 GB | T4 | `setup-laptop.sh` + `make pipeline` |
 | GPU ≥ 24 GB | BigGPU | `COMPUTE_TIER=BIGGPU make pipeline` |
-| No GPU | — | NB0 runs on CPU; the rest needs a GPU (use Colab) |
+| Không có GPU | — | NB0 chạy trên CPU; các phần còn lại cần GPU (dùng Colab) |
 
-If you OOM: lower `MAX_LEN` (768 → 512), then raise `gradient_accumulation_steps` in
-`lab22/config.py`, then drop a tier.
+Nếu hết bộ nhớ GPU (OOM): giảm `MAX_LEN` (768 → 512), sau đó tăng `gradient_accumulation_steps` trong
+`lab22/config.py`, cuối cùng mới hạ tier.
 
-## 3. Disk
+## 3. Ổ đĩa
 
-Base weights 3–6 GB, merged SFT model 8–16 GB (16-bit), HF cache ~10 GB, GGUF Q4_K_M 2.5–5 GB.
-Plan for **40 GB free** locally. Colab gives ~100 GB.
+Trọng số gốc 3–6 GB, mô hình SFT đã gộp 8–16 GB (16-bit), cache Hugging Face ~10 GB, GGUF Q4_K_M 2,5–5 GB.
+Nếu chạy trên máy riêng, nên để trống **40 GB**. Colab cấp khoảng 100 GB.
 
-## 4. Network
+## 4. Mạng
 
-Hugging Face for models and datasets. NB4's default judge is a panel of two local reward models (downloaded from
-Hugging Face, ~8 GB + ~6.5 GB, loaded one at a time). The optional API judge needs HTTPS to the chosen provider; without its key NB4 falls
-back to the reward-model panel.
+Cần truy cập Hugging Face để tải mô hình và dữ liệu. Giám khảo mặc định của NB4 là hội đồng hai reward model chạy
+local (tải từ Hugging Face, ~8 GB + ~6,5 GB, nạp lần lượt từng cái). Giám khảo API (tuỳ chọn) cần kết nối HTTPS
+tới nhà cung cấp đã chọn; nếu không có khoá API, NB4 tự quay về hội đồng reward model.
 
-## 5. Apple Silicon
+## 5. Máy Apple Silicon
 
-bitsandbytes 4-bit and Unsloth's CUDA kernels are not the supported path on MPS, so the GPU notebooks
-target CUDA. NB0 and `make test` run on a Mac. For an Apple-only stretch project, MLX-LM has its own
-LoRA tooling; that is outside this lab.
+bitsandbytes 4-bit và các kernel CUDA của Unsloth không được hỗ trợ trên MPS, nên các notebook dùng GPU chỉ nhắm
+tới CUDA. NB0 và `make test` chạy được trên Mac. Nếu muốn làm dự án mở rộng chỉ dùng máy Apple, MLX-LM có công
+cụ LoRA riêng; phần đó nằm ngoài phạm vi lab này.
