@@ -16,7 +16,7 @@
 |---|---|
 | GPU / VRAM | _<e.g., Colab T4 16 GB>_ |
 | Base model | _<e.g., unsloth/Qwen3-4B-Instruct-2507-unsloth-bnb-4bit>_ |
-| SFT data | _<5CD-AI/Vietnamese-alpaca-cleaned · N mẫu · epochs>_ |
+| SFT data | _<bkai-foundation-models/vi-alpaca · N mẫu · epochs>_ |
 | Preference data | _<sailor2/sea-ultrafeedback-onpolicy (vi) · N train / N held-out>_ |
 | Chosen dài hơn rejected (NB2) | _<e.g., 65%>_ |
 | DPO: β / lr / epochs | _<0.1 / 5e-6 / 1>_ |

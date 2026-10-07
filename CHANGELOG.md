@@ -7,6 +7,8 @@ lint và kiểm tra tĩnh; thời gian và VRAM trong tài liệu là ước tí
 
 ### Sửa lỗi
 
+- **Dataset SFT bị gỡ.** `5CD-AI/Vietnamese-alpaca-cleaned` trả 401 trên Hub (NB1 báo `DatasetNotFoundError`).
+  Thay bằng `bkai-foundation-models/vi-alpaca` (cùng cột `instruction`/`input`/`output`, 50k mẫu).
 - **GGUF thiếu DPO.** NB5 cũ merge adapter SFT nên file GGUF không chứa DPO. Giờ NB5 load `adapters/dpo`
   ở 16-bit, assert có tensor LoRA, rồi so câu trả lời HF vs GGUF (`deploy_meta.json`).
 - **Reference sai.** DPO cũ dùng base model làm reference. NB1 giờ lưu `models/sft-merged` (16-bit); NB3
