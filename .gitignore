@@ -9,22 +9,21 @@ __pycache__/
 
 # Jupyter
 .ipynb_checkpoints/
-# NOTE: notebooks/*.ipynb IS committed for submission (with output cells preserved
-# for grading). The Jupytext `.py` files are the source-of-truth template;
-# `.ipynb` is the student's executed deliverable.
+# notebooks/*.ipynb IS committed for submission (outputs kept for grading).
+# The Jupytext `.py` files are the source of truth.
 
 # Lab artifacts (regenerated on every run; do not commit)
+models/
+adapters/*
+!adapters/.gitkeep
 data/pref/
-data/eval_prompts.json
-adapters/sft-mini/
-adapters/dpo/
-adapters/orpo/
-gguf/
+data/eval/
+gguf*/
 *.gguf
 runs/
 wandb/
 
-# HuggingFace cache (Colab + local — model weights are huge)
+# HuggingFace cache
 .cache/
 hf_cache/
 

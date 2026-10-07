@@ -1,10 +1,5 @@
-"""CPU-only smoke tests — run without a GPU (no torch/unsloth/trl import).
-
-These guard the lab source against the most common breakages so `make test`
-is a real gate, not a no-op:
-- every notebook/script file exists and is valid Python (catches syntax errors)
-- the TRL trainer calls use `processing_class=` (TRL >= 0.13), NOT the removed
-  `tokenizer=` arg — the regression that broke NB1/NB3 on the resolved trl 0.19.x
+"""CPU-only structural checks: sources parse, trainer APIs match TRL 1.13 /
+transformers 5, and the Colab bundles are in sync with the sources.
 
 Run:  pytest -q scripts/   (or `make test`).
 """
@@ -12,45 +7,44 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 NOTEBOOKS = [
-    "01_sft_mini", "02_preference_data", "03_dpo_train",
-    "04_compare_and_eval", "05_merge_deploy_gguf", "06_benchmark",
+    "00_dpo_loss_from_scratch", "01_sft_mini", "02_preference_data", "03_dpo_train",
+    "03b_dpo_variants", "04_compare_and_eval", "05_merge_deploy_gguf", "06_benchmark",
+    "07_grpo_bonus",
 ]
+SOURCES = [REPO / "notebooks" / f"{nb}.py" for nb in NOTEBOOKS] + sorted((REPO / "scripts").glob("*.py")) + sorted(
+    (REPO / "lab22").glob("*.py")
+)
 
 
-def test_notebooks_exist_and_parse():
-    for nb in NOTEBOOKS:
-        p = REPO / "notebooks" / f"{nb}.py"
-        assert p.exists(), f"missing notebook {p}"
-        ast.parse(p.read_text(encoding="utf-8"))  # SyntaxError if broken
+def test_sources_exist_and_parse():
+    for p in SOURCES:
+        assert p.exists(), f"missing {p}"
+        ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
 
 
-def test_scripts_parse():
-    for p in (REPO / "scripts").glob("*.py"):
-        ast.parse(p.read_text(encoding="utf-8"))
+def test_no_removed_trainer_arguments():
+    # tokenizer= (TRL >= 0.13), warmup_ratio (transformers 5), max_prompt_length (TRL 1.x DPOConfig).
+    banned = re.compile(r"\btokenizer\s*=\s*tokenizer\b|\bwarmup_ratio\s*=|\bmax_prompt_length\s*=")
+    offenders = [str(p.relative_to(REPO)) for p in SOURCES if banned.search(p.read_text(encoding="utf-8"))]
+    assert not offenders, f"removed trainer arguments in {offenders}"
 
 
-def test_colab_notebooks_are_valid_json():
-    for p in (REPO / "colab").glob("*.ipynb"):
-        json.loads(p.read_text(encoding="utf-8"))  # ValueError if corrupt
+def test_no_hardcoded_judge_model():
+    for p in SOURCES:
+        if p.name == "test_smoke.py":
+            continue
+        text = p.read_text(encoding="utf-8")
+        assert "gpt-4o-mini" not in text and "claude-haiku" not in text, f"hard-coded judge id in {p}"
 
 
-def test_trainer_uses_processing_class_not_tokenizer():
-    # TRL >= 0.13 removed the `tokenizer=` arg in favour of `processing_class=`.
-    # With the requirements pin `trl>=0.12,<0.20` a fresh install resolves to
-    # 0.19.x, where `DPOTrainer/SFTTrainer(tokenizer=...)` raises TypeError.
-    targets = [
-        "notebooks/01_sft_mini.py",
-        "notebooks/03_dpo_train.py",
-        "scripts/train_dpo.py",
-        "colab/Lab22_DPO_T4.ipynb",
-        "colab/Lab22_DPO_BigGPU.ipynb",
-    ]
-    offenders = [t for t in targets if "tokenizer=tokenizer" in (REPO / t).read_text(encoding="utf-8")]
-    assert not offenders, (
-        f"{offenders} still pass tokenizer=tokenizer to a TRL trainer; "
-        f"use processing_class=tokenizer (tokenizer= removed in trl>=0.13)."
-    )
+def test_colab_bundles_are_valid_and_current():
+    from build_colab import render
+
+    for tier, path in (("T4", "Lab22_DPO_T4.ipynb"), ("BIGGPU", "Lab22_DPO_BigGPU.ipynb")):
+        on_disk = json.loads((REPO / "colab" / path).read_text(encoding="utf-8"))
+        assert on_disk == render(tier), f"colab/{path} is stale: run `make colab`"

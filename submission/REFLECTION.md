@@ -1,9 +1,12 @@
 # Reflection — Lab 22 (DPO/ORPO Alignment)
 
 **Tên:** _<Họ Tên>_
-**Cohort:** _<A20-K1 / A20-K2 / ...>_
+**Cohort:** _<A20-K4 / ...>_
 **Tier đã chạy:** _<T4 | BIGGPU | both>_
 **Date:** _<YYYY-MM-DD>_
+
+> Mọi con số dưới đây lấy từ file do notebook sinh ra (`adapters/dpo/dpo_metrics.json`,
+> `data/eval/judge_summary.json`, `data/eval/benchmark_results.json`…), không ước lượng bằng mắt.
 
 ---
 
@@ -11,125 +14,143 @@
 
 | Item | Value |
 |---|---|
-| GPU | _<e.g., Free Colab T4 16GB / RTX 4060 8GB / A100 40GB>_ |
-| CUDA / driver | _<e.g., CUDA 12.1, driver 535>_ |
-| Base model | _<e.g., unsloth/Qwen2.5-3B-bnb-4bit>_ |
-| SFT dataset slice | _<e.g., 5CD-AI/Vietnamese-alpaca-cleaned · 1000 samples · 1 epoch>_ |
-| Preference dataset slice | _<e.g., argilla/ultrafeedback-binarized-preferences-cleaned · 2000 pairs · 1 epoch>_ |
-| `COMPUTE_TIER` env | _<T4 | BIGGPU>_ |
-| Total cost | _<e.g., $0 (free Colab) / $1.20 (Colab Pro A100 30 min)>_ |
+| GPU / VRAM | _<e.g., Colab T4 16 GB>_ |
+| Base model | _<e.g., unsloth/Qwen3-4B-Instruct-2507-unsloth-bnb-4bit>_ |
+| SFT data | _<5CD-AI/Vietnamese-alpaca-cleaned · N mẫu · epochs>_ |
+| Preference data | _<sailor2/sea-ultrafeedback-onpolicy (vi) · N train / N held-out>_ |
+| Chosen dài hơn rejected (NB2) | _<e.g., 65%>_ |
+| DPO: β / lr / epochs | _<0.1 / 5e-6 / 1>_ |
+| Judge | _<provider:model, hoặc manual>_ |
+| Chi phí | _<$0 Colab free / ...>_ |
 
 ---
 
-## 2. DPO experiment results
+## 2. Kết quả DPO
 
-| Metric | SFT-only baseline | SFT + DPO |
-|---|---:|---:|
-| Training time (NB3) | — | _<e.g., 28 min>_ |
-| VRAM peak | _<e.g., 10.4 GB>_ | _<e.g., 13.8 GB>_ |
-| Final loss | _<e.g., 1.82 (SFT)>_ | _<e.g., 0.48 (DPO)>_ |
-| Reward gap (chosen − rejected, end of training) | n/a | _<e.g., 1.34>_ |
-| Mean output length | _<e.g., 142 tokens>_ | _<e.g., 87 tokens (-39%)>_ |
-
-**Tulu 3 reference numbers** (from deck §7.2b, for context only):
-- +1.7 MATH, +3.3 GSM8K, +1.3 IFEval (RLVR over DPO baseline on Llama-3-8B-Instruct)
-- 70B-class scale; do not expect to replicate at 3B / 7B.
+| Metric | Giá trị |
+|---|---:|
+| Thời gian train NB3 | _<...>_ |
+| VRAM peak | _<...>_ |
+| Train reward gap cuối (chosen − rejected) | _<...>_ |
+| Held-out reward accuracy | _<...>_ |
+| Held-out margin | _<...>_ |
+| Chẩn đoán tự động (`diagnosis`) | _<INTENDED / LIKELIHOOD DISPLACEMENT / FAILURE / AMBIGUOUS>_ |
+| Độ dài TB câu trả lời SFT → DPO (NB4) | _<... → ... ký tự>_ |
 
 ---
 
-## 3. Reward curves analysis (≥ 100 words)
+## 3. Đọc đường reward (≥ 100 từ)
 
-> **Paste `03_dpo_reward_curves.png` here** (or link to it in `submission/screenshots/`).
+> Ảnh: `screenshots/03-dpo-reward-curves.png`
 
-_Interpret both `chosen_rewards` and `rejected_rewards` separately. Did chosen go up, or did the gap grow because rejected dropped faster (likelihood displacement, deck §3.4)? What does this tell you about whether DPO did what you wanted? Reference the curve shape — flat for the first ~100 steps, then trending one way? KL divergence to reference at end?_
+_Mô tả riêng `rewards/chosen` và `rewards/rejected` trên **train và held-out**. Chosen tăng hay giảm?
+Margin tăng vì chosen tăng hay vì rejected giảm nhanh hơn (likelihood displacement)? Held-out có đi
+cùng hướng với train không, hay chỉ train tăng (overfit)? Chẩn đoán tự động có khớp với điều bạn
+thấy không?_
 
-_Answer here. ≥ 100 words._
-
----
-
-## 4. Qualitative comparison (≥ 8 examples)
-
-> **Paste `04_side_by_side_table.png` here** (or summarize in markdown).
-
-| # | Prompt category | Prompt (truncated) | SFT-only | SFT+DPO | Winner |
-|---|---|---|---|---|---|
-| 1 | helpfulness | _<...>_ | _<...>_ | _<...>_ | _<SFT \| DPO \| tie>_ |
-| 2 | helpfulness | | | | |
-| 3 | helpfulness | | | | |
-| 4 | helpfulness | | | | |
-| 5 | safety | | | | |
-| 6 | safety | | | | |
-| 7 | safety | | | | |
-| 8 | safety | | | | |
-
-**Win/loss/tie summary:** _<e.g., SFT+DPO wins 5/8, ties 2/8, loses 1/8>_
-
-**Judge used:** _<gpt-4o-mini | claude-haiku-4-5 | manual rubric>_
+_Trả lời ở đây._
 
 ---
 
-## 5. β trade-off
+## 4. So sánh SFT vs SFT+DPO
 
-_If you ran the β-sweep bonus (rigor add-on +6), describe the result:_
+> Ảnh: `screenshots/04-side-by-side-table.png`
 
-| β | Reward gap | Win-rate (8 prompts) | Output length | Notes |
-|---:|---:|---:|---:|---|
-| 0.05 | _<...>_ | _<...>_ | _<...>_ | |
-| 0.1 (default) | _<...>_ | _<...>_ | _<...>_ | |
-| 0.5 | _<...>_ | _<...>_ | _<...>_ | |
+Từ `data/eval/judge_summary.json`:
 
-_Interpret: where's the sweet spot for your data? Why? Does it match the deck's §3.3 prediction?_
+| Nhóm | n | DPO thắng | SFT thắng | Hoà | Win rate (CI 95%) | Position consistency | Câu dài hơn thắng |
+|---|---:|---:|---:|---:|---|---:|---:|
+| held-out | | | | | | | |
+| helpfulness (4) | | | | | | | |
+| safety (4) | | | | | | | |
 
-_If you did **not** run the sweep:_ predict what you'd expect to see and write a 3-sentence hypothesis. (No points lost — but the muscle of forming a hypothesis is the value.)
+_CI có chứa 0.5 không? Judge có ổn định khi đổi chỗ A/B không? DPO thắng vì câu trả lời tốt hơn hay vì
+dài hơn? Chọn 2 ví dụ cụ thể (1 helpfulness, 1 safety) và giải thích._
 
-_Answer here._
-
----
-
-## 6. Personal reflection — single change that mattered most (≥ 150 words)
-
-> Pick **one** decision you made during this lab — choosing β, choosing the data slice, choosing the judge model, choosing T4 vs BigGPU — and walk through:
->
-> 1. What was the alternative you considered?
-> 2. Why did you pick the one you did?
-> 3. Did the result confirm or surprise you?
-> 4. If you redid the lab tomorrow, what would you change?
-
-_Answer here. ≥ 150 words._
+_Trả lời ở đây._
 
 ---
 
-## 7. Benchmark interpretation (≥ 150 words)
+## 5. β trade-off (bonus `make beta-sweep`)
 
-> **Paste `07-benchmark-comparison.png` here** (or link).
+| β | Held-out margin | Held-out accuracy | Chẩn đoán | Ghi chú |
+|---:|---:|---:|---|---|
+| 0.05 | | | | |
+| 0.1 | | | | |
+| 0.5 | | | | |
 
-Score table from `data/eval/benchmark_results.json`:
-
-| Benchmark | SFT-only | SFT+DPO | Δ |
-|---|---:|---:|---:|
-| IFEval | _<...>_ | _<...>_ | _<...>_ |
-| GSM8K | _<...>_ | _<...>_ | _<...>_ |
-| MMLU (sampled) | _<...>_ | _<...>_ | _<...>_ |
-| AlpacaEval-lite | _<...>_ | _<...>_ | _<...>_ |
-
-_Interpret the deltas. Which benchmark went up most? Did GSM8K or MATH regress (alignment tax — see deck §8.1)? Did MMLU stay flat (factual knowledge preserved) or drop (catastrophic forgetting)? Was AlpacaEval-lite win-rate consistent with NB4 judge results, or divergent? Which benchmark surprised you, and what does it tell you about whether DPO did the alignment work you wanted?_
-
-_Answer here. ≥ 150 words._
+_Nếu không chạy: viết giả thuyết 3 câu về điều bạn dự đoán sẽ thấy._
 
 ---
 
-## Bonus
+## 6. Một quyết định quan trọng nhất (≥ 150 từ)
 
-- [ ] Đã làm β-sweep (rigor add-on +6)
-- [ ] Đã push lên HuggingFace Hub (Submission Option B, +5)
-- [ ] Đã release GGUF với multiple quantizations (+3)
-- [ ] Đã link W&B run public (+2)
-- [ ] Đã làm cross-judge comparison (+4)
-- [ ] Đã làm `BONUS-CHALLENGE.md` provocation (ungraded — link `bonus/` folder)
-- [ ] Pair work với: _<tên đồng đội nếu có>_
+> Chọn **một** quyết định (β, lr, lát dữ liệu, judge, tier, biến thể loss…):
+> 1. Phương án thay thế là gì?
+> 2. Vì sao chọn phương án này?
+> 3. Kết quả xác nhận hay làm bạn bất ngờ?
+> 4. Làm lại thì bạn đổi gì?
+
+_Trả lời ở đây._
 
 ---
 
-## Điều ngạc nhiên nhất khi làm lab này
+## 7. Benchmark (bonus NB6, ≥ 150 từ)
 
-_(Optional, 1–3 câu)_
+> Ảnh: `screenshots/07-benchmark-comparison.png`
+
+| Benchmark | Limit / subtask | SFT (± stderr) | SFT+DPO (± stderr) | Δ |
+|---|---:|---:|---:|---:|
+| IFEval | | | | |
+| GSM8K | | | | |
+| Global-MMLU-vi | | | | |
+
+_Δ nào vượt ~2× stderr? Có alignment tax trên GSM8K không? Benchmark có cùng chiều với NB4 không?_
+
+_Trả lời ở đây._
+
+---
+
+## 8. Biến thể loss (bonus NB3b)
+
+> Ảnh: `screenshots/03b-variants.png`
+
+| Loss | Held-out accuracy | Held-out margin | Độ dài TB | Nhận xét |
+|---|---:|---:|---:|---|
+| DPO | | | | |
+| RPO | | | | |
+| DPO-norm | | | | |
+| LD-DPO | | | | |
+| ORPO | | | | |
+
+_Biến thể nào thay đổi độ dài nhiều nhất, và vì sao (dựa vào công thức loss)?_
+
+---
+
+## 9. GRPO (bonus NB7)
+
+| | Giá trị |
+|---|---:|
+| Accuracy trước / sau (n test) | _<... / ... (n=...)>_ |
+| Sai số chuẩn ≈ √(p(1−p)/n) | _<...>_ |
+
+_Thành phần reward nào tăng trước (format hay correctness)? Chênh lệch có vượt nhiễu không?_
+
+---
+
+## Bonus checklist
+
+- [ ] NB3b — biến thể loss (+8)
+- [ ] NB5 — GGUF SFT+DPO (+4)
+- [ ] NB6 — benchmark (+6)
+- [ ] NB7 — GRPO (+8)
+- [ ] β-sweep (+6)
+- [ ] Cross-judge, hai họ model (+4)
+- [ ] HF Hub push + model card (+3)
+- [ ] `BONUS-CHALLENGE.md` (không chấm điểm)
+
+---
+
+## Điều bất ngờ nhất
+
+_(Tuỳ chọn, 1–3 câu)_

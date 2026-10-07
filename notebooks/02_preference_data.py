@@ -5,174 +5,107 @@
 # ---
 
 # %% [markdown]
-# # NB2 — Preference Data
+# # NB2 — Preference data tiếng Việt
 #
-# **Stack:** `argilla/ultrafeedback-binarized-preferences-cleaned` + tokenizer apply_chat_template.
-# Maps to deck §5.1 (preference data formats) + §5.4 (VN landscape — what exists vs not).
+# **Dataset mặc định:** `sailor2/sea-ultrafeedback-onpolicy`, lọc `language == "Vietnamese"`
+# (khoảng 4.1k cặp). Lab cũ train DPO trên UltraFeedback tiếng Anh trong khi SFT và
+# đánh giá đều bằng tiếng Việt, nên khó đọc hiệu ứng của DPO.
 #
-# > **Mục tiêu:** load preference dataset, format thành `{prompt, chosen, rejected}` với
-# > chat template Qwen2.5, lưu Parquet vào `data/pref/`. Không train gì cả — đây là pure
-# > data prep.
+# > **Mục tiêu:** đưa dữ liệu về dạng hội thoại của TRL
+# > (`prompt`/`chosen`/`rejected` là list message), lọc cặp vượt `MAX_LEN`,
+# > chia **train/eval không trùng prompt**, đo thiên vị độ dài, lưu Parquet.
 # >
-# > Deck §5.4 lists VN preference data realities:
-# > - **VinaLLaMA / PhoGPT / Vistral**: SFT-only, no published DPO data.
-# > - **SeaLLM / Sailor2**: DPO-aligned, Sailor2 has `Sailor2-translated-ultrafeedback-vi`.
-# > - **Native VN preference**: gap. **Bonus B** (xem `BONUS-CHALLENGE.md`) là cơ hội build.
-
-# %% [markdown]
-# ## 0. Setup
+# > **License:** dataset không ghi license. Nguồn gốc là UltraFeedback (prompt) và
+# > phản hồi do model sinh rồi được chấm, nên chỉ dùng cho học tập và nghiên cứu.
+# > Đặt `PREF_DATASET=argilla/ultrafeedback-binarized-preferences-cleaned PREF_LANGUAGE=`
+# > để chạy lại bản tiếng Anh làm đối chứng.
 
 # %%
-import os
+import sys
 from pathlib import Path
 
-COMPUTE_TIER = os.environ.get("COMPUTE_TIER", "T4").upper()
+ROOT = next(p for p in (Path.cwd(), *Path.cwd().parents) if (p / "lab22" / "config.py").exists())
+sys.path.insert(0, str(ROOT))
 
-if COMPUTE_TIER == "T4":
-    PREF_SLICE = 1000
-    MAX_LEN = 512
-    MAX_PROMPT_LEN = 256
-else:
-    PREF_SLICE = 5000
-    MAX_LEN = 1024
-    MAX_PROMPT_LEN = 512
-
-PREF_DATASET = os.environ.get(
-    "PREF_DATASET", "argilla/ultrafeedback-binarized-preferences-cleaned"
-)
-
-REPO_ROOT = Path.cwd().parent if Path.cwd().name == "notebooks" else Path.cwd()
-ADAPTER_DIR = REPO_ROOT / "adapters" / "sft-mini"
-PREF_OUT = REPO_ROOT / "data" / "pref"
-PREF_OUT.mkdir(parents=True, exist_ok=True)
-
-print(f"COMPUTE_TIER:    {COMPUTE_TIER}")
-print(f"PREF_DATASET:    {PREF_DATASET}  (slice: {PREF_SLICE})")
-print(f"MAX_LEN:         {MAX_LEN}")
-print(f"MAX_PROMPT_LEN:  {MAX_PROMPT_LEN}")
-print(f"output:          {PREF_OUT}")
-
-# %% [markdown]
-# ## 1. Load tokenizer (matches NB1 base model)
-
-# %%
 from transformers import AutoTokenizer
 
-assert ADAPTER_DIR.exists(), f"NB1 must run first — {ADAPTER_DIR} missing"
-tokenizer = AutoTokenizer.from_pretrained(ADAPTER_DIR)
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-print(f"Tokenizer: {tokenizer.__class__.__name__}  vocab={tokenizer.vocab_size:,}")
+from lab22 import config as C
+from lab22 import data as D
+
+C.ensure_dirs()
+print(C.summary())
+
+# Only the tokenizer is needed here: chat template + length budget. No GPU.
+tokenizer = AutoTokenizer.from_pretrained(C.BASE_MODEL)
 
 # %% [markdown]
-# ## 2. Load UltraFeedback (English baseline)
-#
-# **Why English?** UltraFeedback was the canonical preference dataset of the deck
-# demo (§7.1: "2k UltraFeedback pairs, 30 min A100, 3.2 → 4.1 helpfulness"). Using
-# the same dataset = numbers comparable to deck.
-#
-# **Why not Vietnamese?** Native VN preference data is a gap (deck §5.4). Translated
-# data (`Sailor2-translated-ultrafeedback-vi`) exists but is NLLB-MT-quality, not native.
-# Bonus B has the full provocation.
+# ## 1. Load, lọc, chia train/eval theo prompt
 
 # %%
-from datasets import load_dataset
-
-ds = load_dataset(PREF_DATASET, split=f"train[:{PREF_SLICE}]")
-print(f"Loaded {len(ds)} pairs. Columns: {ds.column_names}")
+train_ds, eval_ds = D.load_preference_pairs(
+    C.PREF_DATASET,
+    tokenizer,
+    max_len=C.MAX_LEN,
+    n_train=C.PREF_TRAIN,
+    n_eval=C.PREF_EVAL,
+    language=C.PREF_LANGUAGE or None,
+    seed=C.SEED,
+    template_kwargs=C.CHAT_TEMPLATE_KWARGS,
+)
+D.assert_disjoint(list(train_ds), list(eval_ds))
+print(f"train={len(train_ds)}  eval={len(eval_ds)}  (no prompt overlap)")
+print(train_ds[0])
 
 # %% [markdown]
-# ## 3. Format with chat template
+# ## 2. Thiên vị độ dài
 #
-# DPO Trainer expects `prompt / chosen / rejected` columns. Each must already
-# include the chat template tokens — Trainer doesn't apply template internally.
+# Nếu phần lớn `chosen` dài hơn `rejected`, DPO có thể học "viết dài hơn" thay vì
+# "trả lời tốt hơn". Ghi con số này vào REFLECTION và so với độ dài output ở NB4.
 
 # %%
-def format_pref(row):
-    prompt_msgs = [{"role": "user", "content": row["prompt"]}]
-    prompt_text = tokenizer.apply_chat_template(
-        prompt_msgs, tokenize=False, add_generation_prompt=True
-    )
-    # `chosen` and `rejected` in this dataset are list-of-dicts with role/content.
-    # Take just the assistant turn text (last message).
-    chosen_text = row["chosen"][-1]["content"] if isinstance(row["chosen"], list) else row["chosen"]
-    rejected_text = row["rejected"][-1]["content"] if isinstance(row["rejected"], list) else row["rejected"]
-    return {
-        "prompt": prompt_text,
-        "chosen": chosen_text,
-        "rejected": rejected_text,
-    }
+def n_tokens(text: str) -> int:
+    return len(tokenizer(text, add_special_tokens=False)["input_ids"])
 
 
-pref = ds.map(format_pref, remove_columns=ds.column_names)
-print(f"Formatted: {len(pref)} pairs · cols: {pref.column_names}")
-
-# %% [markdown]
-# ### 3a. Inspect 3 examples + token counts (deliverable: NB2 rubric §2)
+stats = D.length_stats(list(train_ds), count=n_tokens)
+print(f"chosen median {stats['chosen_median']:.0f} tok · rejected median {stats['rejected_median']:.0f} tok")
+print(f"chosen longer in {stats['chosen_longer_frac']:.1%} of pairs")
 
 # %%
-import textwrap
-
-for i in range(3):
-    row = pref[i]
-    n_prompt = len(tokenizer(row["prompt"]).input_ids)
-    n_chosen = len(tokenizer(row["chosen"]).input_ids)
-    n_rejected = len(tokenizer(row["rejected"]).input_ids)
-    print(f"\n────── Example {i + 1} ──────")
-    print(f"PROMPT ({n_prompt} tok):\n{textwrap.shorten(row['prompt'], 200)}")
-    print(f"\nCHOSEN ({n_chosen} tok):\n{textwrap.shorten(row['chosen'], 250)}")
-    print(f"\nREJECTED ({n_rejected} tok):\n{textwrap.shorten(row['rejected'], 250)}")
-    assert row["chosen"] != row["rejected"], "chosen == rejected — dataset is corrupt!"
-
-# %% [markdown]
-# ### 3b. Length distribution check
-#
-# Pairs longer than `MAX_LEN` will be truncated by the trainer. If too many are
-# clipped, DPO loses signal. Aim for ≥ 80% of pairs fitting.
-
-# %%
+import matplotlib.pyplot as plt
 import numpy as np
 
-prompt_lens = np.array([len(tokenizer(p).input_ids) for p in pref["prompt"]])
-chosen_lens = np.array([len(tokenizer(c).input_ids) for c in pref["chosen"]])
-rejected_lens = np.array([len(tokenizer(r).input_ids) for r in pref["rejected"]])
-
-total_len = prompt_lens + np.maximum(chosen_lens, rejected_lens)
-fit_pct = (total_len <= MAX_LEN).mean() * 100
-
-print(f"Prompt:   median={np.median(prompt_lens):.0f}  P95={np.percentile(prompt_lens, 95):.0f}")
-print(f"Chosen:   median={np.median(chosen_lens):.0f}  P95={np.percentile(chosen_lens, 95):.0f}")
-print(f"Rejected: median={np.median(rejected_lens):.0f}  P95={np.percentile(rejected_lens, 95):.0f}")
-print(f"\n{fit_pct:.1f}% of pairs fit in MAX_LEN={MAX_LEN}")
-if fit_pct < 80:
-    print("⚠  Less than 80% fit. Consider increasing MAX_LEN or filtering long pairs.")
+chosen = np.array([n_tokens(r["chosen"][0]["content"]) for r in train_ds])
+rejected = np.array([n_tokens(r["rejected"][0]["content"]) for r in train_ds])
+fig, ax = plt.subplots(figsize=(8, 3.5))
+bins = np.linspace(0, C.MAX_LEN, 40)
+ax.hist(chosen, bins=bins, alpha=0.6, label="chosen", color="#2e548a")
+ax.hist(rejected, bins=bins, alpha=0.6, label="rejected", color="#c83538")
+ax.set_xlabel("response tokens")
+ax.set_title(f"Length: chosen longer in {stats['chosen_longer_frac']:.0%} of pairs")
+ax.legend()
+fig.savefig(C.SCREENSHOTS / "02b-pref-length.png", dpi=120, bbox_inches="tight")
+plt.show()
 
 # %% [markdown]
-# ## 4. Save Parquet
+# ## 3. Lưu
 
 # %%
-pref.to_parquet(str(PREF_OUT / "train.parquet"))
-print(f"Saved {len(pref)} pairs to {PREF_OUT / 'train.parquet'}")
+import json
 
-# Also save a small eval slice (last 50 pairs) for NB4 use.
-eval_slice = pref.select(range(len(pref) - 50, len(pref)))
-eval_slice.to_parquet(str(PREF_OUT / "eval.parquet"))
-print(f"Saved 50 eval pairs to {PREF_OUT / 'eval.parquet'}")
+train_ds.to_parquet(str(C.PREF_DIR / "train.parquet"))
+eval_ds.to_parquet(str(C.PREF_DIR / "eval.parquet"))
+(C.PREF_DIR / "stats.json").write_text(
+    json.dumps({"dataset": C.PREF_DATASET, "language": C.PREF_LANGUAGE, **stats}, ensure_ascii=False, indent=2)
+)
+print(f"Saved {len(train_ds)} train / {len(eval_ds)} eval pairs → {C.PREF_DIR}")
 
 # %% [markdown]
-# ## 5. Vibe-coding callout
+# ## 4. Vibe-coding callout
 #
-# Bạn vừa load 2k cặp English UltraFeedback. Cho VN-aligned model thực sự bạn cần
-# preference data tiếng Việt. Có 3 con đường (deck §5.3 — `BONUS-CHALLENGE.md`
-# provocation #1 nếu muốn full):
+# Mở 5 cặp ngẫu nhiên và tự chấm: bạn có đồng ý với nhãn `chosen` không? Khoảng 1%
+# câu `chosen` trong bộ này lẫn tiếng Anh hoặc mất dấu, một số prompt là bài code.
+# Nếu bạn lọc thêm (ví dụ bỏ cặp lệch độ dài > 2×), ghi lại số cặp còn lại và lý do
+# vào REFLECTION. `BONUS-CHALLENGE.md` #1 gợi ý tự xây dữ liệu preference tiếng Việt gốc.
 #
-# 1. **Translate**: chạy NLLB-3.3B trên 2k cặp này. Quality OK, không native.
-# 2. **Generate native**: 200 prompts VN từ VMLU stems → 2 responses (Lab21-SFT vs
-#    stronger model như Gemini Flash) → judge với GPT-4o → train DPO trên đó.
-# 3. **Hybrid**: 1.8k UltraFeedback + 200 native VN. Best-of-both.
-#
-# Notebook 03 dùng English baseline (option 0) cho fairness với deck demo. Nếu
-# bạn ambitious: thay `data/pref/train.parquet` ở NB3 bằng dataset của bạn — code
-# sau đó không đổi.
-#
-# **Next:** NB3 — train DPO trainer với reward curves.
+# **Next:** NB3 — train DPO.

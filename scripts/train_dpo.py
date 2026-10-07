@@ -1,130 +1,89 @@
 #!/usr/bin/env python3
-"""CLI wrapper for NB3 logic — trains a DPO adapter.
+"""Train one DPO adapter from the command line (same recipe as NB3).
 
 Usage:
     python scripts/train_dpo.py
     python scripts/train_dpo.py --beta 0.05 --output-dir adapters/dpo-b0.05
-    python scripts/train_dpo.py --beta 0.5  --output-dir adapters/dpo-b0.50
+    python scripts/train_dpo.py --loss sigmoid,sft --output-dir adapters/rpo
 
-Mirrors `notebooks/03_dpo_train.py`. Used by `make beta-sweep` for the rigor
-add-on +6 (β-sweep mini-experiment).
+Used by `make beta-sweep`. Needs NB1 (models/sft-merged) and NB2 (data/pref).
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--beta", type=float, default=0.1)
-    parser.add_argument("--lr", type=float, default=5e-7)
-    parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--sft-path", default=str(REPO / "adapters" / "sft-mini"))
-    parser.add_argument("--pref-path", default=str(REPO / "data" / "pref" / "train.parquet"))
-    parser.add_argument("--output-dir", default=str(REPO / "adapters" / "dpo"))
+    parser.add_argument("--beta", type=float, default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--loss", default=None, help="comma-separated TRL loss_type list")
+    parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
 
-    tier = os.environ.get("COMPUTE_TIER", "T4").upper()
-    if tier == "T4":
-        base_model = "unsloth/Qwen2.5-3B-bnb-4bit"
-        max_len, max_prompt = 512, 256
-        batch, grad_accum = 1, 8
-    else:
-        base_model = "unsloth/Qwen2.5-7B-bnb-4bit"
-        max_len, max_prompt = 1024, 512
-        batch, grad_accum = 1, 4
-
-    output = Path(args.output_dir)
-    output.mkdir(parents=True, exist_ok=True)
-
-    print(f"Tier:       {tier}")
-    print(f"Base:       {base_model}")
-    print(f"Beta / LR:  {args.beta} / {args.lr}")
-    print(f"Output:     {output}")
-
-    import torch
+    import unsloth  # noqa: F401  (patch trl/transformers first)
     from datasets import Dataset
-    from peft import PeftModel
-    from trl import DPOConfig, DPOTrainer
-    from unsloth import FastLanguageModel
+    from trl import DPOTrainer
 
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=base_model, max_seq_length=max_len, dtype=None, load_in_4bit=True,
-    )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    from lab22 import config as C
+    from lab22 import data as D
+    from lab22 import modeling as MD
 
-    model = PeftModel.from_pretrained(model, args.sft_path, is_trainable=True)
-    model = FastLanguageModel.get_peft_model(
-        model, r=16, lora_alpha=32, lora_dropout=0.0, bias="none",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
-        use_gradient_checkpointing="unsloth",
-        random_state=42, use_rslora=False, loftq_config=None,
-    )
+    output = Path(args.output_dir) if args.output_dir else C.DPO_ADAPTER
+    beta = args.beta if args.beta is not None else C.DPO_BETA
+    lr = args.lr if args.lr is not None else C.DPO_LR
+    loss = args.loss.split(",") if args.loss else C.DPO_LOSS
+    print(C.summary())
+    print(f"→ beta={beta} lr={lr} loss={loss} output={output}")
 
-    config = DPOConfig(
-        output_dir=str(output.parent / f"{output.name}-checkpoints"),
-        per_device_train_batch_size=batch,
-        gradient_accumulation_steps=grad_accum,
-        num_train_epochs=args.epochs,
-        learning_rate=args.lr,
-        beta=args.beta,
-        max_length=max_len,
-        max_prompt_length=max_prompt,
-        warmup_ratio=0.1,
-        lr_scheduler_type="cosine",
-        logging_steps=10,
-        save_strategy="no",
-        optim="adamw_8bit",
-        bf16=torch.cuda.is_bf16_supported(),
-        fp16=not torch.cuda.is_bf16_supported(),
-        seed=42,
-        loss_type="sigmoid",
-        report_to="none",
-    )
-
-    pref = Dataset.from_parquet(args.pref_path)
+    model, tokenizer = MD.load_model(C.SFT_MERGED)
+    model = MD.add_lora(model)
+    train_ds = Dataset.from_parquet(str(C.PREF_DIR / "train.parquet"))
+    eval_ds = Dataset.from_parquet(str(C.PREF_DIR / "eval.parquet"))
     trainer = DPOTrainer(
-        model=model, ref_model=None, args=config,
-        train_dataset=pref, processing_class=tokenizer,
+        model=model,
+        ref_model=None,
+        args=MD.dpo_config(output.parent / f"{output.name}-checkpoints", loss_type=loss, beta=beta, learning_rate=lr),
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
+        processing_class=tokenizer,
     )
-    train_result = trainer.train()
+    result = trainer.train()
+    ev = trainer.evaluate()
 
+    output.mkdir(parents=True, exist_ok=True)
     trainer.model.save_pretrained(str(output))
     tokenizer.save_pretrained(str(output))
-
-    # Headline metrics
-    import pandas as pd
-
-    logs = pd.DataFrame(trainer.state.log_history)
-    chosen_col = "rewards/chosen" if "rewards/chosen" in logs.columns else None
-    rejected_col = "rewards/rejected" if "rewards/rejected" in logs.columns else None
-
+    D.save_split_fingerprint(C.PREF_DIR, output)  # NB4 refuses a held-out set this adapter saw
+    train_hist = MD.reward_history(trainer.state.log_history)
+    end = train_hist.iloc[-1] if not train_hist.empty else {}
     metrics = {
-        "compute_tier": tier,
-        "base_model": base_model,
-        "beta": args.beta,
-        "lr": args.lr,
-        "epochs": args.epochs,
-        "final_train_loss": float(train_result.training_loss),
-        "end_chosen_reward": float(logs[chosen_col].iloc[-5:].mean()) if chosen_col else None,
-        "end_rejected_reward": float(logs[rejected_col].iloc[-5:].mean()) if rejected_col else None,
+        "compute_tier": C.COMPUTE_TIER,
+        "base_model": C.BASE_MODEL,
+        "reference": "models/sft-merged (precomputed)",
+        "beta": beta,
+        "lr": lr,
+        "loss_type": loss,
+        "final_train_loss": float(result.training_loss),
+        "end_chosen_reward": float(end["rewards/chosen"]) if len(end) else None,
+        "end_rejected_reward": float(end["rewards/rejected"]) if len(end) else None,
+        "end_reward_gap": float(end["rewards/margins"]) if len(end) else None,
+        "eval_chosen_reward": ev.get("eval_rewards/chosen"),
+        "eval_rejected_reward": ev.get("eval_rewards/rejected"),
+        "eval_reward_gap": ev.get("eval_rewards/margins"),
+        "eval_reward_accuracy": ev.get("eval_rewards/accuracies"),
+        "diagnosis": MD.diagnose(train_hist)[0],
     }
-    if metrics["end_chosen_reward"] is not None and metrics["end_rejected_reward"] is not None:
-        metrics["end_reward_gap"] = metrics["end_chosen_reward"] - metrics["end_rejected_reward"]
-
     (output / "dpo_metrics.json").write_text(json.dumps(metrics, indent=2))
-    print(f"\nFinal loss:     {train_result.training_loss:.4f}")
-    if "end_reward_gap" in metrics:
-        print(f"End reward gap: {metrics['end_reward_gap']:+.3f}")
-    print(f"Saved to {output}")
+    print(json.dumps(metrics, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

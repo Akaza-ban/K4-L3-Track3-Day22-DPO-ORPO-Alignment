@@ -10,17 +10,17 @@ echo "[laptop] Stack: unsloth + trl + peft + bitsandbytes + llama-cpp-python"
 echo
 
 # ── 1. Python ───────────────────────────────────────────────────────────
-command -v python3 >/dev/null 2>&1 || { echo "[laptop] python3 not found. Install Python 3.10–3.12."; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "[laptop] python3 not found. Install Python 3.10–3.13."; exit 1; }
 PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 echo "[laptop] Python $PY_VER detected"
 case "$PY_VER" in
-  3.10|3.11|3.12) PYREQ="$PY_VER" ;;
+  3.10|3.11|3.12|3.13) PYREQ="$PY_VER" ;;
   *)
     if command -v uv >/dev/null 2>&1; then
-      echo "[laptop] Python $PY_VER out of range (need 3.10-3.12) -- uv will fetch 3.12 for the venv"
+      echo "[laptop] Python $PY_VER out of range (need 3.10-3.13) -- uv will fetch 3.12 for the venv"
       PYREQ="3.12"
     else
-      echo "[laptop] ERROR: Python $PY_VER unsupported -- Unsloth needs 3.10-3.12."
+      echo "[laptop] ERROR: Python $PY_VER unsupported -- this lab is tested on 3.10-3.13."
       echo "[laptop]   Install uv (https://docs.astral.sh/uv/) and rerun (auto-fetches 3.12), or use pyenv."
       exit 1
     fi
@@ -88,14 +88,14 @@ jupytext --to notebook --update notebooks/*.py 2>/dev/null || jupytext --to note
 [ -f .env ] || { cp .env.example .env; echo "[laptop] Created .env — edit to set COMPUTE_TIER and API keys"; }
 
 # ── 7. Make folders that .gitkeep created exist ─────────────────────────
-mkdir -p data/pref adapters/sft-mini adapters/dpo gguf
+mkdir -p data/pref data/eval adapters models gguf submission/screenshots
 
 cat <<EOF
 
 [laptop] Done. Activate the venv and start working:
 
     source .venv/bin/activate
-    make smoke           # 2-step training run on each notebook to verify
+    make smoke           # imports + GPU + sources check
     make pipeline        # full pipeline: sft → data → dpo → eval → deploy
 
 Tip: read VIBE-CODING.md before starting NB1 — 5-10 min, tells you which

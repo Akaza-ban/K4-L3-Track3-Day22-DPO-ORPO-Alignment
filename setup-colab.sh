@@ -4,8 +4,8 @@
 # UI). Just installs deps + auto-tier-detects + converts notebooks.
 #
 # Usage in Colab cell:
-#     !git clone https://github.com/<user>/Day22-Track3-DPO-Alignment-Lab.git
-#     %cd Day22-Track3-DPO-Alignment-Lab
+#     !git clone https://github.com/<user>/<this-repo>.git
+#     %cd <this-repo>
 #     !bash setup-colab.sh
 
 set -euo pipefail
@@ -32,10 +32,10 @@ case "$TIER" in
     exit 1
     ;;
   T4)
-    echo "[colab] T4 (or similar 16 GB) tier — using Qwen2.5-3B"
+    echo "[colab] T4 (or similar 16 GB) tier — using Qwen3-4B-Instruct-2507"
     ;;
   BIGGPU)
-    echo "[colab] BigGPU (A100 / L4) tier — using Qwen2.5-7B"
+    echo "[colab] BigGPU (A100 / L4) tier — using Qwen3-8B (thinking off)"
     ;;
 esac
 
@@ -58,7 +58,7 @@ jupytext --to notebook --update notebooks/*.py 2>/dev/null || jupytext --to note
 sed -i.bak "s/^COMPUTE_TIER=.*/COMPUTE_TIER=$TIER/" .env && rm .env.bak
 
 # ── 5. Make output folders ──────────────────────────────────────────────
-mkdir -p data/pref adapters/sft-mini adapters/dpo gguf
+mkdir -p data/pref data/eval adapters models gguf submission/screenshots
 
 cat <<EOF
 
@@ -73,7 +73,7 @@ In Colab, you can now either:
     3. Or use the make targets:
 
          !make smoke           # quick verification
-         !make pipeline        # full run (~45 min T4 / ~30 min A100)
+         !make pipeline        # core NB0-NB4 (~60 min T4 / ~30 min A100)
 
 Tip: read VIBE-CODING.md before starting NB1.
 

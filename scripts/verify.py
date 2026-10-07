@@ -1,242 +1,223 @@
 #!/usr/bin/env python3
-"""Pre-submission sanity check + smoke mode.
+"""Pre-submission gatekeeper and pre-training smoke check.
 
-Run from repo root: `make verify` (or `python scripts/verify.py`).
-For a quick smoke run before training: `python scripts/verify.py --smoke`.
+    make verify                  # python scripts/verify.py
+    make smoke                   # python scripts/verify.py --smoke
 
-Exits 0 if every required artifact is present + REFLECTION.md edited beyond the
-template. Exits non-zero with a checklist of what's missing — no files written.
+Exits 0 when every core artifact exists and REFLECTION.md is filled in,
+otherwise prints what is missing. Writes nothing.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
 from pathlib import Path
 
-TEMPLATE_MARKERS = [
-    r"<Họ Tên>",
-    r"<A20-K1 / A20-K2",
-    r"<YYYY-MM-DD>",
-    r"_Answer here\.\s*≥",
-    r"_Answer here\._?\s*$",
-    r"<e\.g\., Free Colab T4 16GB",
+REPO = Path(__file__).resolve().parent.parent
+NOTEBOOKS = [
+    "00_dpo_loss_from_scratch", "01_sft_mini", "02_preference_data", "03_dpo_train",
+    "03b_dpo_variants", "04_compare_and_eval", "05_merge_deploy_gguf", "06_benchmark",
+    "07_grpo_bonus",
 ]
+CORE_SCREENSHOTS = ["02-sft-loss", "02b-pref-length", "03-dpo-reward-curves", "04-side-by-side-table"]
+HEADER_MARKERS = [r"<Họ Tên>", r"<A20-K4 / \.\.\.>", r"<YYYY-MM-DD>", r"<e\.g\., Colab T4"]
+ANSWER_PLACEHOLDER = "_Trả lời ở đây._"
+CORE_SECTIONS = ("1", "2", "3", "4", "6")  # §5, §7–§9 belong to bonus work
+MIN_HELDOUT_JUDGED = 50
 
 
-def check_file(path: Path, label: str, problems: list[str]) -> bool:
+def rel(path: Path) -> str:
+    return str(path.relative_to(REPO))
+
+
+def need(path: Path, label: str, problems: list[str]) -> bool:
     if not path.exists():
-        problems.append(f"MISSING  {label}: {path.relative_to(Path.cwd())}")
+        problems.append(f"MISSING  {label}: {rel(path)}")
         return False
-    if path.stat().st_size == 0:
-        problems.append(f"EMPTY    {label}: {path.relative_to(Path.cwd())}")
+    if path.is_file() and path.stat().st_size == 0:
+        problems.append(f"EMPTY    {label}: {rel(path)}")
         return False
     return True
 
 
-def check_screenshots(folder: Path, min_count: int, problems: list[str]) -> int:
-    if not folder.exists():
-        problems.append("MISSING  submission/screenshots/ folder")
-        return 0
-    images = [p for p in folder.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}]
-    if len(images) < min_count:
+def read_json(path: Path, problems: list[str]) -> dict | list | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        problems.append(f"CORRUPT  {rel(path)}: {exc}")
+        return None
+
+
+def check_dpo(problems: list[str], warnings: list[str]) -> None:
+    adapter = REPO / "adapters" / "dpo"
+    if not need(adapter / "adapter_config.json", "DPO adapter (NB3)", problems):
+        return
+    base = str((read_json(adapter / "adapter_config.json", problems) or {}).get("base_model_name_or_path", ""))
+    expected = (REPO / "models" / "sft-merged").resolve()
+    if not base or Path(base).resolve() != expected:
         problems.append(
-            f"TOO FEW  submission/screenshots/: have {len(images)}, need at least {min_count}. "
-            f"See submission/screenshots/README.md for the list."
+            f"WRONG REF  adapters/dpo was trained on {base!r}, not {rel(expected)}: the DPO reference "
+            "must be this repo's SFT model (if the repo moved, rerun NB3 here)."
         )
-    return len(images)
+    sys.path.insert(0, str(REPO))
+    from lab22.data import split_mismatch
+
+    if (REPO / "data" / "pref" / "train.parquet").exists():
+        mismatch = split_mismatch(REPO / "data" / "pref", adapter)
+        if mismatch:
+            problems.append(f"SPLIT    {mismatch}")
+    path = adapter / "dpo_metrics.json"
+    if not need(path, "DPO metrics (NB3)", problems):
+        return
+    metrics = read_json(path, problems) or {}
+    for key in ("end_reward_gap", "eval_reward_accuracy", "diagnosis"):
+        if metrics.get(key) is None:
+            warnings.append(f"dpo_metrics.json has no {key}")
+    gap = metrics.get("end_reward_gap")
+    if isinstance(gap, (int, float)) and gap <= 0:
+        warnings.append(f"end_reward_gap = {gap:+.3f} <= 0: explain it in REFLECTION §3")
 
 
-def check_reflection_edited(path: Path, problems: list[str]) -> bool:
-    if not path.exists():
-        problems.append("MISSING  submission/REFLECTION.md")
-        return False
+def check_judge(problems: list[str]) -> None:
+    eval_dir = REPO / "data" / "eval"
+    outputs = eval_dir / "side_by_side.jsonl"
+    if not need(outputs, "side-by-side outputs (NB4)", problems):
+        return
+    summary = eval_dir / "judge_summary.json"
+    if summary.exists():
+        data = read_json(summary, problems) or {}
+        if data.get("outputs_sha256") != hashlib.sha256(outputs.read_bytes()).hexdigest():
+            problems.append("STALE    judge_summary.json was computed for different outputs: rerun NB4 §3–§4")
+        held = (data.get("heldout") or {}).get("n", 0)
+        if held < MIN_HELDOUT_JUDGED:
+            problems.append(f"TOO FEW  judge_summary.json judged {held} held-out prompts (need ≥ {MIN_HELDOUT_JUDGED})")
+    elif (eval_dir / "manual_judging.csv").exists():
+        problems.append("UNJUDGED data/eval/manual_judging.csv exists but NB4 §4 was not rerun after filling `winner`")
+    else:
+        problems.append("MISSING  data/eval/judge_summary.json (NB4 judge or manual judging)")
+
+
+def check_reflection(problems: list[str]) -> None:
+    path = REPO / "submission" / "REFLECTION.md"
+    if not need(path, "reflection", problems):
+        return
     text = path.read_text(encoding="utf-8")
-    leftover = []
-    for pattern in TEMPLATE_MARKERS:
-        flags = re.MULTILINE if pattern.startswith("^") else 0
-        if re.search(pattern, text, flags):
-            leftover.append(pattern)
-    if len(leftover) >= 3:
-        problems.append(
-            f"UNEDITED submission/REFLECTION.md still has {len(leftover)} template placeholders. "
-            f"Fill in your own numbers and answers."
-        )
-        return False
-    return True
+    header = [p for p in HEADER_MARKERS if re.search(p, text)]
+    if header:
+        problems.append(f"UNEDITED submission/REFLECTION.md header/setup placeholders: {header}")
+    sections = re.split(r"^## ", text, flags=re.MULTILINE)
+    open_core = [
+        sec.split(".", 1)[0]
+        for sec in sections
+        if sec.split(".", 1)[0] in CORE_SECTIONS and (ANSWER_PLACEHOLDER in sec or re.search(r"_<[^>]*>_", sec))
+    ]
+    if open_core:
+        sections = ", ".join(f"§{n}" for n in open_core)
+        problems.append(f"UNEDITED submission/REFLECTION.md core sections still have placeholders: {sections}")
 
 
-def check_dpo_metrics(repo: Path, problems: list[str]) -> bool:
-    metrics_path = repo / "adapters" / "dpo" / "dpo_metrics.json"
-    if not metrics_path.exists():
-        problems.append("MISSING  adapters/dpo/dpo_metrics.json (NB3 didn't complete)")
-        return False
-    try:
-        m = json.loads(metrics_path.read_text())
-    except Exception as exc:
-        problems.append(f"CORRUPT  adapters/dpo/dpo_metrics.json — {exc}")
-        return False
-    gap = m.get("end_reward_gap")
-    if gap is None:
-        problems.append("WARN     adapters/dpo/dpo_metrics.json has no end_reward_gap (TRL log columns missing?)")
-        return True
-    if gap <= 0:
-        problems.append(
-            f"WARN     end_reward_gap = {gap:+.3f} (≤ 0). DPO didn't separate chosen from rejected. "
-            f"Check NB3 output. (Not a hard fail — explain in REFLECTION § 3 + § 5.)"
-        )
-    return True
+def check_screenshots(problems: list[str]) -> None:
+    folder = REPO / "submission" / "screenshots"
+    names = {p.stem for p in folder.glob("*") if p.suffix.lower() in {".png", ".jpg", ".jpeg"}}
+    missing = [n for n in CORE_SCREENSHOTS if n not in names]
+    if missing:
+        problems.append(f"MISSING  screenshots {missing} (written by NB1–NB4)")
 
 
-def check_gguf(repo: Path, problems: list[str]) -> bool:
-    gguf_dir = repo / "gguf"
-    if not gguf_dir.exists():
-        problems.append("MISSING  gguf/ directory (NB5 didn't run)")
-        return False
-    files = list(gguf_dir.glob("*.gguf"))
-    if not files:
-        problems.append("MISSING  gguf/*.gguf — NB5 quantization step didn't write a file")
-        return False
-    big = [p for p in files if p.stat().st_size > 5 * 1024**3]
-    if big:
-        problems.append(
-            f"OVERSIZED  GGUF files > 5 GB: {[p.name for p in big]}. "
-            f"Q4_K_M should be ≤ 5 GB even on 7B."
-        )
-    return True
+def optional_status() -> list[str]:
+    done = []
+    checks = {
+        "NB3b variants": REPO / "adapters" / "variants" / "variants_summary.json",
+        "NB5 GGUF": REPO / "data" / "eval" / "deploy_meta.json",
+        "NB6 benchmark": REPO / "data" / "eval" / "benchmark_results.json",
+        "NB7 GRPO": REPO / "adapters" / "grpo" / "grpo_metrics.json",
+        "β-sweep": REPO / "submission" / "screenshots" / "bonus-beta-sweep.png",
+    }
+    for label, path in checks.items():
+        done.append(f"{'✓' if path.exists() else '·'} {label}")
+    if (REPO / "data" / "eval" / "deploy_meta.json").exists():
+        ggufs = list(REPO.glob("gguf*/**/*.gguf"))
+        done.append(f"  GGUF files: {[rel(p) for p in ggufs] or 'none found'}")
+    return done
 
 
-def smoke_check(repo: Path) -> int:
-    """Light-weight pre-training check: imports work, GPU visible, deck files present."""
-    print("==> Smoke check (imports + GPU + deck files)\n")
+def smoke() -> int:
+    print("==> Smoke check (imports, GPU, sources)\n")
     problems: list[str] = []
-
-    # Imports
     try:
-        import torch  # noqa: WPS433
-        print(f"  ✓ torch              {torch.__version__}")
+        import torch
+
+        print(f"  ✓ torch {torch.__version__}")
         if torch.cuda.is_available():
             dev = torch.cuda.get_device_properties(0)
-            print(f"  ✓ CUDA               {dev.name} ({dev.total_memory / 1e9:.1f} GB)")
+            print(f"  ✓ CUDA {dev.name} ({dev.total_memory / 1e9:.1f} GB)")
         else:
-            problems.append("torch.cuda.is_available() == False -- DPO needs a CUDA/ROCm GPU. Use the Colab T4 path (see HARDWARE-GUIDE.md); this local smoke gate cannot pass on CPU/Mac.")
+            problems.append("No CUDA GPU: NB1–NB7 need one (NB0 runs on CPU). See HARDWARE-GUIDE.md.")
     except ImportError as exc:
         problems.append(f"torch import failed: {exc}")
-
-    for mod in ["unsloth", "trl", "peft", "bitsandbytes", "datasets", "matplotlib"]:
+    for mod in ["unsloth", "trl", "transformers", "peft", "bitsandbytes", "datasets", "lm_eval", "matplotlib"]:
         try:
-            __import__(mod)
-            print(f"  ✓ {mod}")
-        except (ImportError, NotImplementedError, RuntimeError) as exc:
-            # unsloth raises NotImplementedError (not ImportError) when no GPU is present.
-            problems.append(f"{mod} import failed: {exc}")
-
-    # Deck source (sibling file)
-    deck = repo.parent / "day07-dpo-orpo-alignment-tu-sft-en-preference-learning.tex"
-    if deck.exists():
-        print(f"  ✓ deck source        {deck.name}")
-    else:
-        print(f"  ⚠ deck source not found at {deck} — fine if you cloned standalone")
-
-    # Notebook source files
-    nb_dir = repo / "notebooks"
-    expected_nbs = [
-        "01_sft_mini.py", "02_preference_data.py", "03_dpo_train.py",
-        "04_compare_and_eval.py", "05_merge_deploy_gguf.py", "06_benchmark.py",
-    ]
-    for nb in expected_nbs:
-        if (nb_dir / nb).exists():
-            print(f"  ✓ {nb}")
-        else:
-            problems.append(f"missing notebook {nb_dir / nb}")
-
-    # NB6 benchmark dependency check
+            m = __import__(mod)
+            print(f"  ✓ {mod} {getattr(m, '__version__', '')}")
+        except Exception as exc:  # unsloth raises NotImplementedError without a GPU
+            problems.append(f"{mod} import failed: {type(exc).__name__}: {exc}")
+    for nb in NOTEBOOKS:
+        if not (REPO / "notebooks" / f"{nb}.py").exists():
+            problems.append(f"missing notebooks/{nb}.py")
     try:
-        import lm_eval  # noqa: F401
-        print(f"  ✓ lm_eval (NB6 benchmark suite)")
-    except ImportError:
-        problems.append("lm_eval missing — pip install -r requirements.txt (NB6 will fail)")
+        sys.path.insert(0, str(REPO))
+        from lab22 import config as C
 
-    print()
+        print(f"\n{C.summary()}")
+    except Exception as exc:
+        problems.append(f"lab22.config failed: {exc}")
     if problems:
-        print("✗ Smoke check FAILED:\n")
+        print("\n✗ Smoke check FAILED:")
         for line in problems:
             print(f"  - {line}")
         return 1
-    print("✓ Smoke check passed. You can now run `make pipeline` (or open a notebook).")
+    print("\n✓ Smoke check passed. Next: `make pipeline`.")
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--smoke", action="store_true",
-        help="Run pre-training smoke check (imports + GPU) instead of submission gatekeeper",
-    )
-    args = parser.parse_args()
-
-    repo = Path(__file__).resolve().parent.parent
-
-    if args.smoke:
-        return smoke_check(repo)
+    parser.add_argument("--smoke", action="store_true", help="pre-training import/GPU check")
+    if parser.parse_args().smoke:
+        return smoke()
 
     problems: list[str] = []
-    print(f"==> Verifying submission readiness at {repo}\n")
+    warnings: list[str] = []
+    print(f"==> Verifying submission at {REPO}\n")
+    for nb in NOTEBOOKS:
+        need(REPO / "notebooks" / f"{nb}.py", f"notebook {nb}", problems)
+    need(REPO / "adapters" / "sft-mini" / "adapter_config.json", "SFT adapter (NB1)", problems)
+    need(REPO / "models" / "sft-merged" / "config.json", "merged SFT model = DPO reference (NB1)", problems)
+    need(REPO / "data" / "pref" / "train.parquet", "preference train split (NB2)", problems)
+    need(REPO / "data" / "pref" / "eval.parquet", "held-out preference split (NB2)", problems)
+    check_dpo(problems, warnings)
+    check_judge(problems)
+    check_reflection(problems)
+    check_screenshots(problems)
 
-    # Notebook source files
-    for nb in ["01_sft_mini.py", "02_preference_data.py", "03_dpo_train.py",
-               "04_compare_and_eval.py", "05_merge_deploy_gguf.py"]:
-        check_file(repo / "notebooks" / nb, f"notebook {nb}", problems)
-
-    # Adapter outputs
-    check_file(repo / "adapters" / "sft-mini" / "adapter_config.json",
-               "SFT-mini adapter config (NB1 output)", problems)
-    check_file(repo / "adapters" / "dpo" / "adapter_config.json",
-               "DPO adapter config (NB3 output)", problems)
-
-    # DPO metrics
-    check_dpo_metrics(repo, problems)
-
-    # Preference data
-    check_file(repo / "data" / "pref" / "train.parquet",
-               "preference data parquet (NB2 output)", problems)
-
-    # Eval outputs
-    check_file(repo / "data" / "eval" / "side_by_side.jsonl",
-               "side-by-side eval (NB4 output)", problems)
-    check_file(repo / "data" / "eval" / "judge_results.json",
-               "judge results (NB4 output)", problems)
-
-    # OPTIONAL (bonus) — NB5 GGUF + NB6 benchmark: report, do NOT fail core
-    optional = []
-    if not list((repo / "gguf").glob("*.gguf")):
-        optional.append("NB5 GGUF (gguf/*.gguf) not done")
-    if not (repo / "data" / "eval" / "benchmark_results.json").exists():
-        optional.append("NB6 benchmark (data/eval/benchmark_results.json) not done")
-
-    # Submission artifacts (core)
-    check_reflection_edited(repo / "submission" / "REFLECTION.md", problems)
-    n_shots = check_screenshots(repo / "submission" / "screenshots", min_count=3, problems=problems)
-    if n_shots:
-        print(f"  ✓ submission/screenshots/ has {n_shots} image(s)")
-
-    if optional:
-        print("\nⓘ Optional (bonus) not done — fine for a core pass:")
-        for line in optional:
+    print("Optional (bonus):")
+    for line in optional_status():
+        print(f"  {line}")
+    if warnings:
+        print("\nWarnings (not failures):")
+        for line in warnings:
             print(f"  - {line}")
-
     print()
     if not problems:
-        print("✓ Core checks passed. Push your repo (public!) and paste the URL into LMS.")
+        print("✓ Core checks passed. Push your repo and paste the URL into the LMS.")
         return 0
-
-    print("✗ Submission not ready yet:\n")
+    print("✗ Submission not ready:")
     for line in problems:
         print(f"  - {line}")
-    print(
-        "\nFix the items above and rerun `make verify`. See rubric.md for full grading details."
-    )
+    print("\nFix the items above and rerun `make verify`. See rubric.md.")
     return 1
 
 
