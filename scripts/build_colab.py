@@ -109,9 +109,11 @@ def render(tier: str) -> dict:
         code(
             "import os\n"
             f'os.environ["COMPUTE_TIER"] = "{tier}"\n'
-            "# Optional judge for NB4 (leave unset for blind manual judging):\n"
-            '# os.environ["JUDGE_PROVIDER"] = "openai"   # or "anthropic"\n'
+            "# NB4 judges automatically with a local reward model (no key needed).\n"
+            "# Optional API judge as a cross-check (two A/B orders):\n"
+            '# os.environ["JUDGE_PROVIDER"] = "gemini"   # or "openai" / "anthropic"\n'
             '# os.environ["JUDGE_MODEL"] = "<current model id>"\n'
+            '# from google.colab import userdata; os.environ["GEMINI_API_KEY"] = userdata.get("GEMINI_API_KEY")\n'
             "# Put API keys in Colab secrets, never in the notebook."
         ),
         code(f"!pip install -q {pins}" + (' "vllm>=0.10"' if big else "")),

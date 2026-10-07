@@ -20,7 +20,7 @@
 | Preference data | _<sailor2/sea-ultrafeedback-onpolicy (vi) · N train / N held-out>_ |
 | Chosen dài hơn rejected (NB2) | _<e.g., 65%>_ |
 | DPO: β / lr / epochs | _<0.1 / 5e-6 / 1>_ |
-| Judge | _<provider:model, hoặc manual>_ |
+| Judge | _<rm:model hoặc provider:model; sanity accuracy>_ |
 | Chi phí | _<$0 Colab free / ...>_ |
 
 ---
@@ -58,14 +58,17 @@ _Trả lời ở đây._
 
 Từ `data/eval/judge_summary.json`:
 
-| Nhóm | n | DPO thắng | SFT thắng | Hoà | Win rate (CI 95%) | Position consistency | Câu dài hơn thắng |
+| Nhóm | n | DPO thắng | SFT thắng | Hoà | Win rate (CI 95%) | Win rate cặp dài gần bằng | Câu dài hơn thắng |
 |---|---:|---:|---:|---:|---|---:|---:|
 | held-out | | | | | | | |
 | helpfulness (4) | | | | | | | |
 | safety (4) | | | | | | | |
 
-_CI có chứa 0.5 không? Judge có ổn định khi đổi chỗ A/B không? DPO thắng vì câu trả lời tốt hơn hay vì
-dài hơn? Chọn 2 ví dụ cụ thể (1 helpfulness, 1 safety) và giải thích._
+Judge: ______ · sanity accuracy: ______ · `score_length_spearman` (RM) hoặc position consistency (API): ______
+
+_CI có chứa 0.5 không? Judge có đáng tin trên tiếng Việt không (sanity set)? DPO thắng vì câu trả lời tốt
+hơn hay vì dài hơn? Judge RM cùng họ với RM đã gán nhãn dữ liệu: điều đó ảnh hưởng kết luận thế nào?
+Chọn 2 ví dụ cụ thể (1 helpfulness, 1 safety) và giải thích._
 
 _Trả lời ở đây._
 

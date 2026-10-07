@@ -68,13 +68,13 @@ make test | verify | clean
 | `02_preference_data` | `sailor2/sea-ultrafeedback-onpolicy` lọc tiếng Việt → format hội thoại của TRL; tách train/held-out **theo prompt**; đo thiên vị độ dài | không prompt nào nằm ở cả hai phía; `02b-pref-length.png` |
 | `03_dpo_train` | `DPOTrainer` trên `models/sft-merged` + LoRA mới, lr 5e-6, β 0.1, đánh giá trên held-out; chẩn đoán đường reward | `03-dpo-reward-curves.png`; `dpo_metrics.json` có chẩn đoán |
 | `03b_dpo_variants` (bonus) | Cùng dữ liệu, chỉ đổi loss: DPO, RPO, DPO chuẩn hoá độ dài, LD-DPO, ORPO | `03b-variants.png` |
-| `04_compare_and_eval` | 8 prompt cố định + ≥ 50 prompt held-out; judge chấm **hai chiều** (đổi A/B), CI 95%, tỉ lệ "câu dài thắng"; không có key thì xuất phiếu chấm tay ẩn danh | `judge_summary.json` |
+| `04_compare_and_eval` | 8 prompt cố định + ≥ 50 prompt held-out; **chấm tự động** bằng reward model local (không cần API key, có bộ sanity tiếng Việt) hoặc judge API hai chiều; CI 95%, "câu dài thắng", win rate cặp dài gần bằng | `judge_summary.json` |
 | `05_merge_deploy_gguf` (bonus) | Load SFT+**DPO** ở 16-bit → GGUF Q4_K_M → so câu trả lời HF vs GGUF | `deploy_meta.json` |
 | `06_benchmark` (bonus) | lm-eval có chat template: IFEval, GSM8K, Global-MMLU-vi; limit tính theo subtask; có stderr | `07-benchmark-comparison.png` |
-| `07_grpo_bonus` (bonus) | GRPO với reward kiểm chứng được (đáp số GSM8K) | `08-grpo-reward.png` |
+| `07_grpo_bonus` (bonus) | GRPO với reward kiểm chứng được: bài toán tiếng Việt `vuongtsc/vi-gsm8k-agentic`, chấm đáp số (đọc được `1.440`, `2,5`) | `08-grpo-reward.png` |
 
 Notebook là file Jupytext `.py` (dễ review). Logic dùng chung nằm trong package [`lab22/`](lab22/)
-(`config`, `data`, `judge`, `dpo_math`, `modeling`) và có test CPU trong `scripts/test_lab22.py`.
+(`config`, `data`, `judge`, `dpo_math`, `math_reward`, `modeling`) và có test CPU trong `scripts/test_lab22.py`.
 
 ---
 
@@ -112,7 +112,7 @@ Chấm điểm: [`rubric.md`](rubric.md).
 | OOM khi load | Sai tier. T4 dùng Qwen3-4B; vẫn OOM thì giảm `MAX_LEN` (768 → 512) |
 | `rewards/chosen` âm, margin vẫn tăng | Likelihood displacement. Ghi vào REFLECTION §3, so với RPO ở NB3b |
 | Margin ≈ 0 sau cả epoch | lr quá thấp hoặc reference sai. Kiểm tra `adapter_config.json` trỏ tới `models/sft-merged` |
-| `TypeError: ... warmup_ratio` / `max_prompt_length` | Code cũ viết cho transformers 4 / TRL 0.x. Dùng `lab22.modeling.dpo_config` |
+| `TypeError: ... warmup_ratio` / `max_prompt_length` | Code cũ viết cho transformers 4 / TRL 0.x (kể cả snippet `DPOConfig` trong slide: `ref_model` riêng, lr 5e-7, `max_prompt_length`). Dùng `lab22.modeling.dpo_config` |
 | Câu trả lời có `<think>` | Model Qwen3 hybrid: đã tắt bằng `enable_thinking=False`; kiểm tra `C.CHAT_TEMPLATE_KWARGS` |
 | GGUF trả lời giống hệt SFT | Adapter DPO không được load. NB5 assert có tensor `lora_`; đừng export từ `adapters/sft-mini` |
 | llama-cpp-python không cài được | `CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python` (CUDA) hoặc `-DGGML_METAL=on` (Mac) |
@@ -128,6 +128,10 @@ Nộp URL GitHub công khai vào LMS (không cần PR):
 2. Chạy NB0–NB4 (giữ output), điền REFLECTION, `make verify`.
 3. `git add -A && git commit -m "Lab 22 submission" && git push`.
 
+Bài được chấm tự động từ repo, nên chỉ những gì đã commit mới được tính. `.gitignore` đã giữ lại các file
+bằng chứng nhỏ (`adapters/*/adapter_config.json`, `dpo_metrics.json`, `split.json`, `data/pref/*.parquet`,
+`data/eval/*.json[l]`) và chặn trọng số (`models/`, `*.safetensors`, GGUF). Đừng commit `.env`.
+
 Option B (+5): đẩy adapter lên Hugging Face Hub. Option C: chỉ code + report.
 
 ---
@@ -142,8 +146,11 @@ Xem [`BONUS-CHALLENGE.md`](BONUS-CHALLENGE.md) · [`BONUS-CHALLENGE-EN.md`](BONU
 ## Dữ liệu và giấy phép
 
 - Code: MIT ([`LICENSE`](LICENSE)).
-- `sailor2/sea-ultrafeedback-onpolicy`: không ghi license trên dataset card tại thời điểm kiểm tra;
-  dùng cho mục đích giáo dục/nghiên cứu, không phân phối lại.
+- `sailor2/sea-ultrafeedback-onpolicy`: dataset card không ghi license, nhưng bài báo Sailor2
+  ([arXiv 2502.12982](https://arxiv.org/abs/2502.12982), Bảng 1) công bố model, dữ liệu và code theo
+  **Apache-2.0**. Prompt gốc từ UltraFeedback (MIT); nhãn chosen/rejected do reward model Skywork gán.
+- `vuongtsc/vi-gsm8k-agentic` (NB7): MIT. Lời giải do các LLM sinh rồi lọc; xem dataset card.
+- `Skywork/Skywork-Reward-V2-Qwen3-4B` (judge NB4): Apache-2.0.
 - `5CD-AI/Vietnamese-alpaca-cleaned`: xem dataset card trước khi dùng ngoài lớp học.
 - GSM8K (MIT), IFEval (Apache-2.0), Global-MMLU (Apache-2.0).
 

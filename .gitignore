@@ -12,12 +12,24 @@ __pycache__/
 # notebooks/*.ipynb IS committed for submission (outputs kept for grading).
 # The Jupytext `.py` files are the source of truth.
 
-# Lab artifacts (regenerated on every run; do not commit)
+# Lab artifacts: weights stay local. The small evidence files below ARE committed,
+# because the auto-grader reads only what is in the repo.
 models/
 adapters/*
 !adapters/.gitkeep
-data/pref/
-data/eval/
+!adapters/*/
+adapters/*/*
+!adapters/*/adapter_config.json
+!adapters/*/dpo_metrics.json
+!adapters/*/split.json
+!adapters/*/variants_summary.json
+!adapters/*/grpo_metrics.json
+data/pref/*
+!data/pref/*.parquet
+data/eval/*
+!data/eval/*.json
+!data/eval/*.jsonl
+data/eval/lm_eval/
 gguf*/
 *.gguf
 runs/

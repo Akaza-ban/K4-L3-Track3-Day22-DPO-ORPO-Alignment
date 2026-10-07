@@ -27,6 +27,7 @@ HEADER_MARKERS = [r"<Họ Tên>", r"<A20-K4 / \.\.\.>", r"<YYYY-MM-DD>", r"<e\.g
 ANSWER_PLACEHOLDER = "_Trả lời ở đây._"
 CORE_SECTIONS = ("1", "2", "3", "4", "6")  # §5, §7–§9 belong to bonus work
 MIN_HELDOUT_JUDGED = 50
+MIN_SANITY = 0.8  # reward-model judge on the Vietnamese sanity pairs
 
 
 def rel(path: Path) -> str:
@@ -81,23 +82,23 @@ def check_dpo(problems: list[str], warnings: list[str]) -> None:
         warnings.append(f"end_reward_gap = {gap:+.3f} <= 0: explain it in REFLECTION §3")
 
 
-def check_judge(problems: list[str]) -> None:
+def check_judge(problems: list[str], warnings: list[str]) -> None:
     eval_dir = REPO / "data" / "eval"
     outputs = eval_dir / "side_by_side.jsonl"
     if not need(outputs, "side-by-side outputs (NB4)", problems):
         return
     summary = eval_dir / "judge_summary.json"
-    if summary.exists():
-        data = read_json(summary, problems) or {}
-        if data.get("outputs_sha256") != hashlib.sha256(outputs.read_bytes()).hexdigest():
-            problems.append("STALE    judge_summary.json was computed for different outputs: rerun NB4 §3–§4")
-        held = (data.get("heldout") or {}).get("n", 0)
-        if held < MIN_HELDOUT_JUDGED:
-            problems.append(f"TOO FEW  judge_summary.json judged {held} held-out prompts (need ≥ {MIN_HELDOUT_JUDGED})")
-    elif (eval_dir / "manual_judging.csv").exists():
-        problems.append("UNJUDGED data/eval/manual_judging.csv exists but NB4 §4 was not rerun after filling `winner`")
-    else:
-        problems.append("MISSING  data/eval/judge_summary.json (NB4 judge or manual judging)")
+    if not need(summary, "judge summary (NB4 §3–§4)", problems):
+        return
+    data = read_json(summary, problems) or {}
+    if data.get("outputs_sha256") != hashlib.sha256(outputs.read_bytes()).hexdigest():
+        problems.append("STALE    judge_summary.json was computed for different outputs: rerun NB4 §3–§4")
+    held = (data.get("heldout") or {}).get("n", 0)
+    if held < MIN_HELDOUT_JUDGED:
+        problems.append(f"TOO FEW  judge_summary.json judged {held} held-out prompts (need ≥ {MIN_HELDOUT_JUDGED})")
+    sanity = data.get("sanity_accuracy")
+    if isinstance(sanity, (int, float)) and sanity < MIN_SANITY:
+        warnings.append(f"judge sanity accuracy {sanity:.0%} < {MIN_SANITY:.0%}: discuss it in REFLECTION")
 
 
 def check_reflection(problems: list[str]) -> None:
@@ -199,7 +200,7 @@ def main() -> int:
     need(REPO / "data" / "pref" / "train.parquet", "preference train split (NB2)", problems)
     need(REPO / "data" / "pref" / "eval.parquet", "held-out preference split (NB2)", problems)
     check_dpo(problems, warnings)
-    check_judge(problems)
+    check_judge(problems, warnings)
     check_reflection(problems)
     check_screenshots(problems)
 

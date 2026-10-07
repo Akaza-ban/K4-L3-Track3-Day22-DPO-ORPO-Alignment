@@ -11,17 +11,19 @@
 # > - 8 prompt cố định (4 hữu ích, 4 an toàn) để đọc bằng mắt;
 # > - `JUDGE_PROMPTS` prompt (≥50) lấy từ tập eval held-out của NB2.
 # >
-# > **Judge:** mỗi cặp được chấm hai lần, đổi chỗ A/B. DPO chỉ thắng khi cả hai lần
-# > đều chọn DPO; lệch nhau thì tính hoà. Kết quả có khoảng tin cậy 95% (bootstrap)
-# > và tỉ lệ "câu dài hơn thắng" để phát hiện thiên vị độ dài.
-# > Model judge lấy từ `JUDGE_PROVIDER` + `JUDGE_MODEL` (xem `.env.example`). Không có
-# > key thì notebook xuất file chấm tay, không tự ghi "hoà".
+# > **Judge (tự động, không cần API key):** mặc định là reward model chạy local
+# > (`Skywork/Skywork-Reward-V2-Qwen3-4B`, Apache-2.0). Nó chấm điểm từng câu trả lời riêng,
+# > nên không có thiên vị vị trí A/B. Trước khi chấm, nó phải qua bộ kiểm tra 12 cặp
+# > tiếng Việt hiển nhiên (≥ 80% đúng).
+# > Tuỳ chọn: judge API (`JUDGE_PROVIDER=gemini|openai|anthropic` + `JUDGE_MODEL`) chấm mỗi cặp
+# > **hai lần** đổi chỗ A/B; lệch nhau tính hoà.
+# > Cả hai đều báo khoảng tin cậy 95% (bootstrap), tỉ lệ "câu dài hơn thắng" và win rate trên
+# > các cặp dài gần bằng nhau, để phát hiện thiên vị độ dài.
 
 # %%
 import hashlib
 import json
 import os
-import random
 import sys
 from pathlib import Path
 
@@ -92,9 +94,8 @@ del model
 MD.cleanup()
 
 records = [{**p, "sft": s, "dpo": d} for p, s, d in zip(PROMPTS, sft_out, dpo_out)]
-# New outputs invalidate any earlier verdicts; the summary records which outputs it judged.
-for stale in ("judge_summary.json", "judge_results.json"):
-    (C.EVAL_DIR / stale).unlink(missing_ok=True)
+# New outputs invalidate the old summary; saved verdicts record which outputs they judged.
+(C.EVAL_DIR / "judge_summary.json").unlink(missing_ok=True)
 with open(C.EVAL_DIR / "side_by_side.jsonl", "w", encoding="utf-8") as f:
     for r in records:
         f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -130,106 +131,79 @@ fig.savefig(C.SCREENSHOTS / "04-side-by-side-table.png", dpi=120, bbox_inches="t
 plt.show()
 
 # %% [markdown]
-# ## 3. Judge hai chiều
+# ## 3. Chấm tự động
 #
-# Không có key (hoặc không đặt `JUDGE_PROVIDER`) thì chuyển sang **chấm tay**: mỗi prompt
-# xuất hiện **hai lần** trong `manual_judging.csv`, mỗi lần một thứ tự A/B, các dòng bị xáo
-# để bạn không nhận ra cặp. Điền `winner` = A, B hoặc tie rồi chạy lại §4: hai phiếu được
-# gộp bằng đúng luật của judge API (lệch nhau thì hoà), nên position consistency là số thật.
+# **Reward model (mặc định).** Hai model sinh câu trả lời đã được giải phóng ở §1, nên RM
+# (~8 GB fp16) vừa T4. Thiếu VRAM thì đặt `JUDGE_RM_MODEL=Skywork/Skywork-Reward-V2-Qwen3-1.7B`.
+#
+# Hai điểm cần ghi vào REFLECTION khi đọc kết quả RM:
+# - **Vòng lặp:** nhãn chosen/rejected của `sea-ultrafeedback-onpolicy` cũng do một RM họ
+#   Skywork gán. DPO học theo sở thích của RM đó, nên RM cùng họ dễ "đồng ý" với DPO hơn người.
+# - **Cùng họ Qwen3** với model đang train. Judge API khác họ (Gemini) là phép kiểm tra chéo.
+#
+# **Judge API (tuỳ chọn).** Đặt `JUDGE_PROVIDER` + `JUDGE_MODEL` + key. Thiếu key thì notebook
+# quay về RM, không dừng. Chạy lần lượt cả hai judge: kết quả lưu riêng
+# (`judge_results_rm.json`, `judge_results_api.json`) và §4 báo tỉ lệ hai judge đồng ý, nếu cả
+# hai chấm cùng một `side_by_side.jsonl` (sinh greedy nên thường trùng giữa các lần chạy).
 
 # %%
-MANUAL_SHEET = C.EVAL_DIR / "manual_judging.csv"
-MANUAL_KEY = C.EVAL_DIR / "manual_key.json"
+provider = C.JUDGE_PROVIDER
+if provider != "rm" and not J.has_judge_key(provider):
+    print(f"JUDGE_PROVIDER={provider} but its API key is missing → local reward model.")
+    provider = "rm"
 
-
-def write_manual_sheet() -> None:
-    import pandas as pd
-
-    if MANUAL_KEY.exists() and json.loads(MANUAL_KEY.read_text()).get("outputs_sha256") == OUTPUTS_SHA:
-        print(f"{MANUAL_SHEET.name} already matches these outputs: kept (your answers are safe).")
-        return
-    rows, key = [], {}
-    for r in records:
-        for order in ("sft_first", "dpo_first"):
-            a, b = (r["sft"], r["dpo"]) if order == "sft_first" else (r["dpo"], r["sft"])
-            rows.append({"prompt": r["prompt"], "A": a, "B": b, "winner": "", "_id": r["id"], "_order": order})
-    random.Random(C.SEED).shuffle(rows)
-    for i, row in enumerate(rows):
-        key[f"r{i:03d}"] = {"id": row.pop("_id"), "order": row.pop("_order")}
-        row["row"] = f"r{i:03d}"
-    cols = ["row", "prompt", "A", "B", "winner"]
-    pd.DataFrame(rows)[cols].to_csv(MANUAL_SHEET, index=False)
-    MANUAL_KEY.write_text(json.dumps({"outputs_sha256": OUTPUTS_SHA, "rows": key}))
-    print(f"Wrote {MANUAL_SHEET.relative_to(C.REPO_ROOT)} ({len(rows)} rows). Fill `winner`, then run §4.")
-
-
-judged, judge_name = None, "manual"
-if C.JUDGE_PROVIDER and J.has_judge_key(C.JUDGE_PROVIDER):
-    call = J.make_caller(C.JUDGE_PROVIDER, C.JUDGE_MODEL)
-    judged = [{**r, **J.judge_pair(r["prompt"], r["sft"], r["dpo"], call)} for r in records]
-    judge_name = f"{C.JUDGE_PROVIDER}:{C.JUDGE_MODEL}"
-    (C.EVAL_DIR / "judge_results.json").write_text(json.dumps(judged, ensure_ascii=False, indent=2))
+sanity = None
+if provider == "rm":
+    score = J.make_rm_scorer(C.JUDGE_RM_MODEL)
+    sanity = J.sanity_accuracy(score)
+    print(f"Vietnamese sanity set: {sanity:.0%} of {len(J.SANITY_PAIRS)} obvious pairs ranked correctly")
+    if sanity < 0.8:
+        print("WARNING: the reward model fails obvious Vietnamese pairs; treat its verdicts with caution.")
+    judged = [{**r, **J.rm_judge_pair(r["prompt"], r["sft"], r["dpo"], score)} for r in records]
+    judge_name, kind = f"rm:{C.JUDGE_RM_MODEL}", "rm"
+    del score
+    MD.cleanup()
 else:
-    if C.JUDGE_PROVIDER:
-        print(f"JUDGE_PROVIDER={C.JUDGE_PROVIDER} but its API key is missing → manual judging.")
-    write_manual_sheet()
+    call = J.make_caller(provider, C.JUDGE_MODEL)
+    judged = [{**r, **J.judge_pair(r["prompt"], r["sft"], r["dpo"], call)} for r in records]
+    judge_name, kind = f"{provider}:{C.JUDGE_MODEL}", "api"
+(C.EVAL_DIR / f"judge_results_{kind}.json").write_text(
+    json.dumps({"judge": judge_name, "outputs_sha256": OUTPUTS_SHA, "records": judged}, ensure_ascii=False, indent=2)
+)
 
 # %% [markdown]
 # ## 4. Tổng hợp
-#
-# Chế độ chấm tay: cell này luôn đọc lại CSV, nên chạy lại bao nhiêu lần cũng được.
 
 # %%
-def from_manual() -> list[dict] | None:
-    import pandas as pd
-
-    if not (MANUAL_SHEET.exists() and MANUAL_KEY.exists()):
-        return None
-    key = json.loads(MANUAL_KEY.read_text())
-    if key.get("outputs_sha256") != OUTPUTS_SHA:
-        print("manual_judging.csv was written for different outputs: rerun §3.")
-        return None
-    verdicts: dict[str, dict[str, str]] = {}
-    for _, row in pd.read_csv(MANUAL_SHEET).fillna("").iterrows():
-        raw = str(row["winner"]).strip()
-        if not raw:
-            continue
-        meta = key["rows"][row["row"]]
-        verdicts.setdefault(meta["id"], {})[meta["order"]] = J.parse_verdict(raw)
-    by_id = {r["id"]: r for r in records}
-    out = [
-        {**by_id[i], **J.verdict_record(v["sft_first"], v["dpo_first"])}
-        for i, v in verdicts.items()
-        if {"sft_first", "dpo_first"} <= v.keys()
-    ]
-    print(f"manual: {len(out)} prompts have both rows filled")
-    return out or None
-
-
-if judge_name == "manual":
-    judged = from_manual()  # always reread: rows may have been filled or corrected since the last run
-if not judged:
-    (C.EVAL_DIR / "judge_summary.json").unlink(missing_ok=True)
-    print("Not judged yet: summary skipped (no win rate is reported).")
-else:
-    summary = {
-        "judge": judge_name,
-        "outputs_sha256": OUTPUTS_SHA,
-        "overall": J.summarize(judged, seed=C.SEED),
-        "heldout": J.summarize([r for r in judged if r["category"] == "heldout"], seed=C.SEED),
-        "helpfulness": J.summarize([r for r in judged if r["category"] == "helpfulness"], seed=C.SEED),
-        "safety": J.summarize([r for r in judged if r["category"] == "safety"], seed=C.SEED),
-    }
-    (C.EVAL_DIR / "judge_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+summary = {
+    "judge": judge_name,
+    "outputs_sha256": OUTPUTS_SHA,
+    "sanity_accuracy": sanity,
+    "overall": J.summarize(judged, seed=C.SEED),
+    "heldout": J.summarize([r for r in judged if r["category"] == "heldout"], seed=C.SEED),
+    "helpfulness": J.summarize([r for r in judged if r["category"] == "helpfulness"], seed=C.SEED),
+    "safety": J.summarize([r for r in judged if r["category"] == "safety"], seed=C.SEED),
+}
+other = C.EVAL_DIR / f"judge_results_{'api' if kind == 'rm' else 'rm'}.json"
+if other.exists():
+    saved = json.loads(other.read_text())
+    if saved.get("outputs_sha256") == OUTPUTS_SHA:  # greedy outputs usually repeat across runs
+        summary["cross_judge"] = {"other_judge": saved["judge"], **J.agreement(judged, saved["records"])}
+    else:
+        print(f"{other.name} judged different outputs: no cross-judge agreement reported.")
+(C.EVAL_DIR / "judge_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 # %% [markdown]
 # ## 5. Đọc kết quả
 #
 # - Khoảng tin cậy chứa 0.5 ⇒ chưa đủ bằng chứng DPO tốt hơn SFT.
-# - `position_consistency` thấp ⇒ judge thiếu ổn định, đừng tin win rate.
-# - `n_failed` > 0 ⇒ judge trả lời sai định dạng; các cặp đó bị loại, không tính hoà.
+# - `sanity_accuracy` < 0.8 ⇒ RM không đọc tốt tiếng Việt, đừng tin win rate.
 # - `longer_answer_won_frac` gần 1 và DPO dài hơn SFT ⇒ có thể DPO chỉ học viết dài (so với NB2 §2).
-# - +4 rigor: chạy lại với judge khác họ (`JUDGE_PROVIDER=anthropic` vs `openai`) và so hai kết quả.
+#   Xem thêm `length_matched_win_rate` (chỉ các cặp dài gần bằng nhau) và `score_length_spearman`
+#   (điểm RM tương quan với độ dài; gần 1 là RM đang chấm độ dài).
+# - Judge API: `position_consistency` thấp ⇒ judge thiếu ổn định; `n_failed` > 0 ⇒ judge trả lời
+#   sai định dạng, các cặp đó bị loại, không tính hoà.
+# - +4 rigor: chạy thêm judge API khác họ (ví dụ `JUDGE_PROVIDER=gemini`) và báo `cross_judge.agreement`.
 #
 # **Next:** NB5 (GGUF) hoặc NB6 (benchmark).

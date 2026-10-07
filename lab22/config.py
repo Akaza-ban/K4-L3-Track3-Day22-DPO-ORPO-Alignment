@@ -139,10 +139,19 @@ LORA_R = int(_env("LORA_R", "16"))
 LORA_ALPHA = int(_env("LORA_ALPHA", "32"))
 LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
+# --- GRPO (NB7) -------------------------------------------------------------
+# Native Vietnamese GSM8K-style problems (MIT, 1,465 rows, numeric `final_answer`).
+# Set GRPO_DATASET=openai/gsm8k to use the English original instead.
+GRPO_DATASET = _env("GRPO_DATASET", "vuongtsc/vi-gsm8k-agentic")
+
 # --- Judge ----------------------------------------------------------------
-# No default model id on purpose: judge ids change faster than the lab, so
-# the student picks a current one and records it in REFLECTION.
-JUDGE_PROVIDER = _env("JUDGE_PROVIDER", "").lower()  # openai | anthropic | "" (manual)
+# Default "rm": a local reward model (Apache-2.0, ~8 GB fp16, fits a T4), no API key.
+# Its score is per answer, so it has no A/B position bias. Smaller option:
+# Skywork/Skywork-Reward-V2-Qwen3-1.7B.
+JUDGE_PROVIDER = _env("JUDGE_PROVIDER", "rm").lower()  # rm | openai | anthropic | gemini
+JUDGE_RM_MODEL = _env("JUDGE_RM_MODEL", "Skywork/Skywork-Reward-V2-Qwen3-4B")
+# API judges have no default model id on purpose: ids change faster than the lab,
+# so the student picks a current one and records it in REFLECTION.
 JUDGE_MODEL = _env("JUDGE_MODEL", "")
 JUDGE_PROMPTS = int(_env("JUDGE_PROMPTS", str(TIER.judge_prompts)))
 GEN_MAX_NEW_TOKENS = int(_env("GEN_MAX_NEW_TOKENS", "384"))

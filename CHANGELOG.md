@@ -39,13 +39,28 @@ lint và kiểm tra tĩnh; thời gian và VRAM trong tài liệu là ước tí
   từng mục cốt lõi của REFLECTION còn placeholder hay không.
 - NB5 so HF vs GGUF trên cùng prompt đã áp chat template (thinking tắt), cùng số token.
 
+### Chấm tự động và dữ liệu
+
+- NB4 chấm **tự động**, mặc định bằng reward model local `Skywork/Skywork-Reward-V2-Qwen3-4B` (Apache-2.0,
+  không cần API key). Trước khi chấm, RM phải xếp đúng ≥ 80% bộ 12 cặp tiếng Việt hiển nhiên (4 cặp có câu
+  sai dài hơn). Judge API hai chiều thành tuỳ chọn (thêm Gemini qua endpoint tương thích OpenAI); thiếu key
+  thì quay về RM. Bỏ phiếu chấm tay.
+- Báo thêm win rate trên các cặp dài gần bằng nhau, tương quan Spearman điểm RM–độ dài, và tỉ lệ đồng ý
+  giữa hai judge (`cross_judge`) khi chạy cả RM và judge API trên cùng output.
+- `.gitignore` giữ lại file bằng chứng nhỏ (adapter config, metrics, split, parquet, kết quả NB4) để công cụ
+  chấm đọc từ repo; trọng số vẫn bị chặn.
+- NB7 dùng `vuongtsc/vi-gsm8k-agentic` (MIT, 1.465 bài tiếng Việt), tách train/test cố định. Reward đáp số
+  (`lab22/math_reward.py`) đọc được cả `1.440` (nghìn) và `2,5` (thập phân); đáp án tham chiếu đọc chặt.
+  `GRPO_DATASET=openai/gsm8k` để dùng bản tiếng Anh.
+- License: sailor2 là Apache-2.0 theo bài báo Sailor2 (Bảng 1), dù dataset card không ghi.
+
 ### Cập nhật
 
 - Stack: Unsloth ≥ 2026.10.1, TRL 1.13, transformers 5.2–5.17, datasets 4.x, PEFT ≥ 0.18, lm-eval ≥ 0.4.13.
   API mới: `loss_type` dạng list, `warmup_steps` float, ORPO ở `trl.experimental.orpo`.
 - Base model: Qwen3-4B-Instruct-2507 (T4), Qwen3-8B thinking tắt (BigGPU). Gemma 4 E4B ghi là phương án thay thế.
 - Dữ liệu preference tiếng Việt: `sailor2/sea-ultrafeedback-onpolicy` lọc `vi`.
-- Notebook mới: NB0 (DPO loss từ đầu, CPU, từ K3), NB3b (DPO / RPO / DPO-norm / LD-DPO / ORPO), NB7 (GRPO, RLVR trên GSM8K).
+- Notebook mới: NB0 (DPO loss từ đầu, CPU, từ K3), NB3b (DPO / RPO / DPO-norm / LD-DPO / ORPO), NB7 (GRPO, RLVR trên bài toán tiếng Việt).
 - Package `lab22/` dùng chung (config, data, judge, dpo_math, modeling) + test CPU `scripts/test_lab22.py`.
 - Notebook Colab sinh tự động bằng `make colab` (`scripts/build_colab.py`), test kiểm tra không lệch nguồn.
 - `make verify` viết lại: kiểm tra reference, held-out, chẩn đoán reward, judge summary.

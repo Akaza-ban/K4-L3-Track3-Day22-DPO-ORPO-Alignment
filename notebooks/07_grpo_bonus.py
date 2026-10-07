@@ -12,8 +12,14 @@
 # xác suất các câu có reward cao hơn trung bình nhóm. Không cần reward model hay
 # critic: với toán, reward là "đáp số đúng hay sai" (RLVR, *verifiable rewards*).
 #
-# Notebook này chạy một vòng GRPO rất nhỏ trên GSM8K để thấy cơ chế, **không** để
-# đạt điểm cao. T4: ~40 phút cho 60 bước với G=4.
+# Notebook này chạy một vòng GRPO rất nhỏ để thấy cơ chế, **không** để đạt điểm cao.
+# T4: ~40 phút cho 60 bước với G=4.
+#
+# **Dữ liệu:** `vuongtsc/vi-gsm8k-agentic` (MIT): 1.465 bài toán tiểu học viết mới bằng
+# tiếng Việt từ seed GSM8K, đáp số dạng số đã kiểm tra bằng chạy code. Bộ này chỉ có
+# split `train`, nên notebook tự tách train/test cố định. Các bài được lọc để model yếu
+# giải sai, nên accuracy ban đầu của model 4B có thể thấp: nếu cả G câu trả lời của một
+# prompt đều sai thì advantage = 0 và prompt đó không đóng góp gradient.
 #
 # | | DPO (NB3) | GRPO (NB7) |
 # |---|---|---|
@@ -23,7 +29,6 @@
 # | Chi phí | 2 forward / cặp | G lần sinh / prompt |
 
 # %%
-import re
 import sys
 from pathlib import Path
 
@@ -34,6 +39,7 @@ import unsloth  # noqa: F401
 import torch
 
 from lab22 import config as C
+from lab22 import math_reward as MR
 from lab22 import modeling as MD
 
 assert torch.cuda.is_available()
@@ -41,7 +47,7 @@ assert C.SFT_MERGED.exists(), "Run NB1 first"
 C.ensure_dirs()
 
 BIG = C.COMPUTE_TIER == "BIGGPU"
-N_TRAIN, N_TEST, MAX_STEPS, G = (2000, 200, 200, 8) if BIG else (400, 100, 60, 4)
+N_TRAIN, N_TEST, MAX_STEPS, G = (1265, 200, 200, 8) if BIG else (400, 100, 60, 4)
 
 # %% [markdown]
 # ## 1. Dữ liệu + hàm reward
@@ -57,38 +63,32 @@ def gold(answer: str) -> str:
 
 
 def to_row(r):
-    return {"prompt": [{"role": "user", "content": INSTRUCTION + r["question"]}], "answer": gold(r["answer"])}
+    # vi-gsm8k-agentic stores the number in `final_answer`; GSM8K puts it after "####".
+    ref = str(r["final_answer"]) if "final_answer" in r else gold(r["answer"])
+    return {"prompt": [{"role": "user", "content": INSTRUCTION + r["question"]}], "answer": ref.strip()}
 
 
-gsm = load_dataset("openai/gsm8k", "main")
-train_ds = gsm["train"].shuffle(seed=C.SEED).select(range(N_TRAIN)).map(to_row, remove_columns=["question"])
-test_ds = gsm["test"].select(range(N_TEST)).map(to_row, remove_columns=["question"])
+if C.GRPO_DATASET == "openai/gsm8k":
+    gsm = load_dataset("openai/gsm8k", "main")
+    train_raw, test_raw = gsm["train"].shuffle(seed=C.SEED), gsm["test"]
+else:
+    # Single split: hold out a fixed test slice before any training row is drawn.
+    parts = load_dataset(C.GRPO_DATASET, split="train").shuffle(seed=C.SEED).train_test_split(
+        test_size=N_TEST, seed=C.SEED
+    )
+    train_raw, test_raw = parts["train"], parts["test"]
+cols = train_raw.column_names
+train_ds = train_raw.select(range(min(N_TRAIN, len(train_raw)))).map(to_row, remove_columns=cols)
+test_ds = test_raw.select(range(min(N_TEST, len(test_raw)))).map(to_row, remove_columns=cols)
+assert not set(train_ds["prompt"][i][0]["content"] for i in range(len(train_ds))) & set(
+    test_ds["prompt"][i][0]["content"] for i in range(len(test_ds))
+), "GRPO train/test overlap"
+print(f"{C.GRPO_DATASET}: train {len(train_ds)} · test {len(test_ds)}")
 
-NUM = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
-
-
-def extract_number(text: str) -> str | None:
-    tail = text.split("Đáp số:")[-1] if "Đáp số:" in text else text
-    nums = NUM.findall(tail)
-    return nums[-1].replace(",", "").rstrip(".") if nums else None
-
-
-def same_number(pred: str | None, ref: str) -> bool:
-    try:
-        return pred is not None and abs(float(pred) - float(ref)) < 1e-6
-    except ValueError:
-        return False
-
-
-def correctness_reward(completions, answer, **kwargs) -> list[float]:
-    return [2.0 if same_number(extract_number(c[0]["content"]), a) else 0.0 for c, a in zip(completions, answer)]
-
-
-def format_reward(completions, **kwargs) -> list[float]:
-    return [0.5 if re.search(r"Đáp số:\s*-?\d", c[0]["content"]) else 0.0 for c in completions]
-
-
-assert same_number(extract_number("... vậy\nĐáp số: 1,250"), "1250")
+# Đọc số theo cả kiểu Việt ("1.440", "2,5") lẫn kiểu Anh ("1,440", "2.5"): xem lab22/math_reward.py.
+correctness_reward, format_reward = MR.correctness_reward, MR.format_reward
+assert MR.is_correct(MR.extract_answer("... vậy\nĐáp số: 1.250"), "1250")
+assert MR.is_correct(MR.extract_answer("Đáp số: 2,5 kg"), "2.5")
 assert correctness_reward([[{"content": "Đáp số: 7"}]], ["8"]) == [0.0]
 
 # %% [markdown]
@@ -98,12 +98,12 @@ assert correctness_reward([[{"content": "Đáp số: 7"}]], ["8"]) == [0.0]
 def accuracy(model, tokenizer) -> float:
     prompts = [r["prompt"][0]["content"] for r in test_ds]
     outs = MD.generate(model, tokenizer, prompts, max_new_tokens=320)
-    return sum(same_number(extract_number(o), r["answer"]) for o, r in zip(outs, test_ds)) / len(test_ds)
+    return sum(MR.is_correct(MR.extract_answer(o), r["answer"]) for o, r in zip(outs, test_ds)) / len(test_ds)
 
 
 model, tokenizer = MD.load_model(C.SFT_MERGED)
 acc_before = accuracy(model, tokenizer)
-print(f"GSM8K[:{N_TEST}] accuracy before GRPO: {acc_before:.3f}")
+print(f"test[{len(test_ds)}] accuracy before GRPO: {acc_before:.3f}")
 model = MD.add_lora(model)
 
 # %% [markdown]
@@ -159,14 +159,17 @@ if "reward_std" in logs:
     ax.fill_between(logs["step"], logs["reward"] - logs["reward_std"], logs["reward"] + logs["reward_std"], alpha=0.2)
 ax.set_xlabel("step")
 ax.set_ylabel("reward (max 2.5)")
-ax.set_title(f"GRPO · GSM8K · G={G}")
+ax.set_title(f"GRPO · {C.GRPO_DATASET.split('/')[-1]} · G={G}")
 ax.grid(True, alpha=0.3)
 fig.savefig(C.SCREENSHOTS / "08-grpo-reward.png", dpi=120, bbox_inches="tight")
 plt.show()
 
 acc_after = accuracy(trainer.model, tokenizer)
 trainer.model.save_pretrained(str(C.GRPO_ADAPTER))
-result = {"n_test": N_TEST, "steps": MAX_STEPS, "num_generations": G, "acc_before": acc_before, "acc_after": acc_after}
+result = {
+    "dataset": C.GRPO_DATASET, "n_test": len(test_ds), "steps": MAX_STEPS,
+    "num_generations": G, "acc_before": acc_before, "acc_after": acc_after,
+}
 (C.GRPO_ADAPTER / "grpo_metrics.json").write_text(json.dumps(result, indent=2))
 print(result)
 
@@ -175,5 +178,5 @@ print(result)
 #
 # 1. Reward tăng nhanh nhất ở thành phần nào: format hay correctness? Đó có phải "reward hacking" không?
 # 2. Với N_TEST=100, chênh lệch accuracy bao nhiêu mới vượt nhiễu? (sai số chuẩn ≈ √(p(1−p)/n)).
-# 3. So `acc_before` với GSM8K của SFT ở NB6: prompt và cách chấm khác nhau, nên con số nào
-#    đáng tin hơn cho câu hỏi "GRPO có giúp toán không"?
+# 3. So `acc_before` với GSM8K (tiếng Anh) của SFT ở NB6: ngôn ngữ, độ khó, prompt và cách chấm
+#    đều khác, nên con số nào đáng tin hơn cho câu hỏi "GRPO có giúp toán không"?

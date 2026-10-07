@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO))
 
 from lab22 import data as D
 from lab22 import judge as J
+from lab22 import math_reward as MR
 
 
 def pair(prompt: str, chosen: str = "good answer", rejected: str = "bad") -> dict:
@@ -148,12 +149,55 @@ def test_summarize_without_records_is_not_judged():
     assert J.summarize([]) == {"n": 0, "n_failed": 0, "status": "not judged"}
 
 
+def test_rm_record_picks_higher_score_and_has_no_position():
+    assert J.rm_record(0.2, 1.5)["winner"] == "dpo"
+    assert J.rm_record(1.5, 0.2)["winner"] == "sft"
+    assert J.rm_record(1.0, 1.0)["winner"] == "tie"
+    assert J.rm_record(0.0, 1.0)["position_consistent"] is None
+
+
+def test_summarize_reward_model_records():
+    recs = [
+        {"id": "a", "winner": "dpo", "sft": "s", "dpo": "longer", "sft_score": 0.0, "dpo_score": 2.0,
+         "position_consistent": None},
+        {"id": "b", "winner": "sft", "sft": "abcd", "dpo": "abce", "sft_score": 1.0, "dpo_score": 0.5,
+         "position_consistent": None},
+    ]
+    s = J.summarize(recs)
+    assert s["position_consistency"] is None  # undefined without A/B orders
+    assert s["length_matched_n"] == 1 and s["length_matched_win_rate"] == 0.0
+    assert -1.0 <= s["score_length_spearman"] <= 1.0
+
+
+def test_spearman_handles_ties_and_constant_input():
+    assert J.spearman([1, 2, 3, 4], [10, 20, 30, 40]) == pytest.approx(1.0)
+    assert J.spearman([1, 2, 3, 4], [4, 3, 2, 1]) == pytest.approx(-1.0)
+    assert J.spearman([1, 1, 2, 3], [1, 1, 2, 3]) == pytest.approx(1.0)
+    assert J.spearman([1, 1, 1], [1, 2, 3]) is None
+
+
+def test_agreement_skips_failed_and_unshared_prompts():
+    a = [{"id": "1", "winner": "dpo"}, {"id": "2", "winner": "sft"}, {"id": "3", "winner": "failed"}]
+    b = [{"id": "1", "winner": "dpo"}, {"id": "2", "winner": "tie"}, {"id": "3", "winner": "dpo"}]
+    assert J.agreement(a, b) == {"n": 2, "agreement": 0.5}
+
+
+def test_sanity_set_catches_a_length_only_judge():
+    good = {g for _, g, _ in J.SANITY_PAIRS}
+    assert J.sanity_accuracy(lambda p, a: 1.0 if a in good else 0.0) == 1.0
+    length_only = J.sanity_accuracy(lambda p, a: float(len(a)))
+    assert length_only < 0.8, length_only  # the sanity bar must reject a judge that only rewards length
+
+
 def test_make_caller_requires_model_id(monkeypatch):
     with pytest.raises(RuntimeError, match="JUDGE_MODEL"):
         J.make_caller("openai", "")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         J.make_caller("openai", "some-model")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+        J.make_caller("gemini", "some-model")
     with pytest.raises(RuntimeError, match="JUDGE_PROVIDER"):
         J.make_caller("other", "m")
 
@@ -261,3 +305,24 @@ def test_reward_history_strips_eval_prefix():
     log = [{"step": 5, "loss": 0.6}, {"step": 25, "eval_rewards/chosen": 0.1, "eval_rewards/rejected": -0.1}]
     df = MD.reward_history(log, prefix="eval_")
     assert list(df["rewards/chosen"]) == [0.1]
+
+
+# --- GRPO math reward -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "ref", "ok"),
+    [
+        ("Vậy\nĐáp số: 1.440", "1440", True),  # Vietnamese thousands grouping
+        ("Đáp số: 1,440", "1440", True),  # English thousands grouping
+        ("Đáp số: 2,5 kg", "2.5", True),  # Vietnamese decimal comma
+        ("Đáp số: 2.5.", "2.5", True),
+        ("Đáp số: 1.234,5", "1234.5", True),
+        ("Đáp số: 25", "2.5", False),
+        ("Đáp số: 125", "0.125", False),  # canonical reference is not regrouped
+        ("Bước 1: 3 + 4 = 7. Đáp số: 8", "7", False),  # only the final marker counts
+        ("không có số", "3", False),
+    ],
+)
+def test_math_reward_reads_vietnamese_numbers(text, ref, ok):
+    assert MR.is_correct(MR.extract_answer(text), ref) is ok
