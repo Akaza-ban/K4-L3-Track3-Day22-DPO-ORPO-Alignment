@@ -54,10 +54,12 @@ print(f"Loaded {len(ds)} rows. Columns: {ds.column_names}")
 
 
 def to_text(row):
-    prompt = row["instruction"] + (f"\n\n{row['input']}" if row.get("input") else "")
+    # The translated rows carry stray leading spaces; strip so the template stays clean.
+    instruction, extra = row["instruction"].strip(), (row.get("input") or "").strip()
+    prompt = instruction + (f"\n\n{extra}" if extra else "")
     messages = [
         {"role": "user", "content": prompt},
-        {"role": "assistant", "content": row["output"]},
+        {"role": "assistant", "content": row["output"].strip()},
     ]
     return {"text": MD.chat_text(tokenizer, messages, add_generation_prompt=False)}
 

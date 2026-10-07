@@ -153,13 +153,13 @@ Xem [`BONUS-CHALLENGE.md`](BONUS-CHALLENGE.md) · [`BONUS-CHALLENGE-EN.md`](BONU
   LLM sinh rồi lọc; xem dataset card.
 - Judge NB4: `Skywork/Skywork-Reward-V2-Qwen3-4B` (Apache-2.0) và `Skywork/Skywork-Reward-V2-Llama-3.2-3B`
   (Llama 3.2 Community License); xem model card.
-- `bkai-foundation-models/vi-alpaca` (SFT, 50k mẫu tiếng Việt sinh theo kiểu Self-Instruct bằng GPT-4/GPT-3.5;
-  [arXiv 2403.01616](https://arxiv.org/abs/2403.01616)): dataset card không ghi license, chỉ dùng cho lớp học.
-  Bản cũ `5CD-AI/Vietnamese-alpaca-cleaned` đã bị gỡ khỏi Hub (10/2026).
+- `saillab/alpaca-vietnamese-cleaned` (SFT): Alpaca-52K + Dolly-15K dịch sang tiếng Việt bằng Google Translate
+  (dự án TaCo, UNH SAIL Lab), **CC BY-NC**, chỉ dùng cho học tập và nghiên cứu. Bản cũ
+  `5CD-AI/Vietnamese-alpaca-cleaned` đã bị gỡ khỏi Hub (10/2026).
 - GSM8K (MIT), IFEval (Apache-2.0), Global-MMLU (Apache-2.0).
 
 ## Acknowledgments
 
-Unsloth, TRL, PEFT, lm-evaluation-harness, llama.cpp; Sailor2 (SEA UltraFeedback); BKAI (vi-alpaca); Trần Đình Minh Vương, CAIR (vi-gsm8k-agentic).
+Unsloth, TRL, PEFT, lm-evaluation-harness, llama.cpp; Sailor2 (SEA UltraFeedback); SAIL Lab UNH (alpaca-vietnamese-cleaned); Trần Đình Minh Vương, CAIR (vi-gsm8k-agentic).
 
 © VinUniversity AICB program · Track 3 Day 22.

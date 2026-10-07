@@ -116,7 +116,7 @@ SEED = int(_env("SEED", "42"))
 CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
 
 # --- Data -----------------------------------------------------------------
-SFT_DATASET = _env("SFT_DATASET", "bkai-foundation-models/vi-alpaca")
+SFT_DATASET = _env("SFT_DATASET", "saillab/alpaca-vietnamese-cleaned")
 SFT_SLICE = int(_env("SFT_SLICE", str(TIER.sft_slice)))
 
 # Vietnamese on-policy UltraFeedback (Sailor2). The lab used English
