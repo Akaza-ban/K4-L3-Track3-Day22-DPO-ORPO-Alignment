@@ -5,28 +5,28 @@
 # ---
 
 # %% [markdown]
-# # NB7 — GRPO với reward kiểm chứng được (RLVR) (BONUS, +8)
+# # NB7 — GRPO với reward kiểm chứng được (RLVR) (THƯỞNG, +8)
 #
-# DPO học từ *cặp* preference có sẵn (offline). GRPO (DeepSeekMath, 2024; dùng trong
-# DeepSeek-R1) sinh **G câu trả lời cho mỗi prompt**, chấm bằng hàm reward, rồi đẩy
-# xác suất các câu có reward cao hơn trung bình nhóm. Không cần reward model hay
-# critic: với toán, reward là "đáp số đúng hay sai" (RLVR, *verifiable rewards*).
+# DPO học từ *cặp* sở thích có sẵn (ngoại tuyến). GRPO (DeepSeekMath, 2024; dùng trong
+# DeepSeek-R1) sinh **G câu trả lời cho mỗi câu hỏi**, chấm bằng hàm reward, rồi đẩy
+# xác suất các câu có reward cao hơn trung bình nhóm. Không cần mô hình reward hay
+# mô hình critic: với toán, reward là "đáp số đúng hay sai" (RLVR, *verifiable rewards*).
 #
 # Notebook này chạy một vòng GRPO rất nhỏ để thấy cơ chế, **không** để đạt điểm cao.
 # T4: ~40 phút cho 60 bước với G=4.
 #
 # **Dữ liệu:** `vuongtsc/vi-gsm8k-agentic` (MIT): 1.465 bài toán tiểu học viết mới bằng
 # tiếng Việt từ seed GSM8K, đáp số dạng số đã kiểm tra bằng chạy code. Bộ này chỉ có
-# split `train`, nên notebook tự tách train/test cố định. Các bài được lọc để model yếu
-# giải sai, nên accuracy ban đầu của model 4B có thể thấp: nếu cả G câu trả lời của một
-# prompt đều sai thì advantage = 0 và prompt đó không đóng góp gradient.
+# split `train`, nên notebook tự chia cố định thành tập huấn luyện/kiểm tra. Các bài được lọc để mô hình yếu
+# giải sai, nên độ chính xác ban đầu của mô hình 4B có thể thấp: nếu cả G câu trả lời của một
+# câu hỏi đều sai thì advantage = 0 và câu hỏi đó không đóng góp gradient.
 #
 # | | DPO (NB3) | GRPO (NB7) |
 # |---|---|---|
-# | Dữ liệu | cặp chosen/rejected cố định | chỉ cần prompt + cách chấm |
-# | Sinh trong lúc train | không | có (on-policy) |
+# | Dữ liệu | cặp chosen/rejected cố định | chỉ cần câu hỏi + cách chấm |
+# | Sinh trong lúc huấn luyện | không | có (tự sinh, on-policy) |
 # | Reference / KL | bắt buộc (β) | tuỳ chọn; TRL mặc định `beta=0.0` |
-# | Chi phí | 2 forward / cặp | G lần sinh / prompt |
+# | Chi phí | 2 forward / cặp | G lần sinh / câu hỏi |
 
 # %%
 import sys
@@ -92,7 +92,7 @@ assert MR.is_correct(MR.extract_answer("Đáp số: 2,5 kg"), "2.5")
 assert correctness_reward([[{"content": "Đáp số: 7"}]], ["8"]) == [0.0]
 
 # %% [markdown]
-# ## 2. Accuracy trước khi train
+# ## 2. Độ chính xác trước khi huấn luyện
 
 # %%
 def accuracy(model, tokenizer) -> float:
@@ -110,7 +110,7 @@ model = MD.add_lora(model)
 # ## 3. GRPO
 #
 # `per_device_train_batch_size × grad_accum` phải chia hết cho `num_generations` (G):
-# mỗi batch chứa trọn các nhóm G câu trả lời của cùng một prompt.
+# mỗi batch chứa trọn các nhóm G câu trả lời của cùng một câu hỏi.
 
 # %%
 from trl import GRPOConfig, GRPOTrainer
@@ -144,7 +144,7 @@ trainer = GRPOTrainer(
 trainer.train()
 
 # %% [markdown]
-# ## 4. Reward curve + accuracy sau train (deliverable `08-grpo-reward.png`)
+# ## 4. Đường cong reward + độ chính xác sau huấn luyện (sản phẩm nộp `08-grpo-reward.png`)
 
 # %%
 import json
@@ -176,7 +176,7 @@ print(result)
 # %% [markdown]
 # ## 5. Câu hỏi
 #
-# 1. Reward tăng nhanh nhất ở thành phần nào: format hay correctness? Đó có phải "reward hacking" không?
-# 2. Với N_TEST=100, chênh lệch accuracy bao nhiêu mới vượt nhiễu? (sai số chuẩn ≈ √(p(1−p)/n)).
-# 3. So `acc_before` với GSM8K (tiếng Anh) của SFT ở NB6: ngôn ngữ, độ khó, prompt và cách chấm
+# 1. Reward tăng nhanh nhất ở thành phần nào: định dạng hay tính đúng? Đó có phải "khai thác lỗ hổng reward (reward hacking)" không?
+# 2. Với N_TEST=100, chênh lệch độ chính xác bao nhiêu mới vượt nhiễu? (sai số chuẩn ≈ √(p(1−p)/n)).
+# 3. So `acc_before` với GSM8K (tiếng Anh) của SFT ở NB6: ngôn ngữ, độ khó, câu hỏi và cách chấm
 #    đều khác, nên con số nào đáng tin hơn cho câu hỏi "GRPO có giúp toán không"?

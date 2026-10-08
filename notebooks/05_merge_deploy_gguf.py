@@ -5,13 +5,13 @@
 # ---
 
 # %% [markdown]
-# # NB5 — Merge SFT+DPO → GGUF Q4_K_M (OPTIONAL, bonus)
+# # NB5 — Gộp SFT+DPO → GGUF Q4_K_M (TUỲ CHỌN, thưởng điểm)
 #
-# > Core lab = NB0–NB4. Bước này build llama.cpp lúc chạy (~3–5 phút lần đầu).
+# > Phần lõi của lab = NB0–NB4. Bước này biên dịch llama.cpp lúc chạy (~3–5 phút lần đầu).
 #
-# **Lỗi của lab cũ:** NB5 chỉ load adapter **SFT** rồi merge, nên file GGUF không có DPO.
-# Ở đây ta load `adapters/dpo` (adapter config trỏ tới `models/sft-merged`), tức là
-# SFT + DPO, rồi export. Có một bước kiểm tra để chắc chắn adapter DPO thực sự được load.
+# **Lỗi của lab cũ:** NB5 chỉ nạp adapter **SFT** rồi gộp, nên file GGUF không có DPO.
+# Ở đây ta nạp `adapters/dpo` (adapter config trỏ tới `models/sft-merged`), tức là
+# SFT + DPO, rồi xuất file. Có một bước kiểm tra để chắc chắn adapter DPO thực sự được nạp.
 
 # %%
 import json
@@ -35,9 +35,9 @@ adapter_cfg = json.loads((C.DPO_ADAPTER / "adapter_config.json").read_text())
 print(f"DPO adapter base: {adapter_cfg.get('base_model_name_or_path')}")
 
 # %% [markdown]
-# ## 1. Load SFT + DPO ở 16-bit
+# ## 1. Nạp SFT + DPO ở 16-bit
 #
-# Merge vào trọng số 4-bit làm mất chính xác, nên load 16-bit (`load_in_4bit=False`).
+# Gộp vào trọng số 4-bit làm mất độ chính xác, nên nạp 16-bit (`load_in_4bit=False`).
 # T4 16 GB đủ cho 4B ở fp16 (~8 GB).
 
 # %%
@@ -58,9 +58,9 @@ stop_tokens = [tokenizer.eos_token] if tokenizer.eos_token else []
 print(f"HF (SFT+DPO) answer:\n{hf_answer}")
 
 # %% [markdown]
-# ## 2. Export GGUF Q4_K_M
+# ## 2. Xuất GGUF Q4_K_M
 #
-# `save_pretrained_gguf` merge LoRA vào trọng số 16-bit rồi gọi llama.cpp để quantize.
+# `save_pretrained_gguf` gộp LoRA vào trọng số 16-bit rồi gọi llama.cpp để lượng tử hoá.
 # Tên file và thư mục con khác nhau giữa các bản Unsloth, nên ta tìm file bằng glob đệ quy.
 
 # %%
@@ -80,11 +80,11 @@ del model
 MD.cleanup()
 
 # %% [markdown]
-# ## 3. Smoke test bằng llama-cpp-python (deliverable `06-gguf-smoke.png`)
+# ## 3. Kiểm tra nhanh (smoke test) bằng llama-cpp-python (sản phẩm nộp `06-gguf-smoke.png`)
 #
-# So câu trả lời GGUF với câu trả lời HF ở §1. Quantize 4-bit làm câu chữ lệch một
+# So câu trả lời GGUF với câu trả lời HF ở §1. Lượng tử hoá 4-bit làm câu chữ lệch một
 # chút, nhưng nội dung và phong cách phải giống nhau. Nếu GGUF trả lời giống hệt
-# model SFT (NB4) thì adapter DPO đã bị bỏ sót.
+# mô hình SFT (NB4) thì adapter DPO đã bị bỏ sót.
 
 # %%
 from llama_cpp import Llama
@@ -115,21 +115,21 @@ deploy_meta = {
 print("Saved data/eval/deploy_meta.json")
 
 # %% [markdown]
-# ## 4. Serving (tham khảo, chạy ngoài notebook)
+# ## 4. Triển khai (tham khảo, chạy ngoài notebook)
 #
-# llama.cpp server (CPU/GPU, file GGUF):
+# Máy chủ llama.cpp (CPU/GPU, file GGUF):
 #
 # ```bash
 # llama-server -m gguf/<file>.Q4_K_M.gguf --port 8080 -c 2048
 # ```
 #
-# vLLM (BigGPU, ≥16 GB): phục vụ model 16-bit có LoRA mà không cần merge:
+# vLLM (BigGPU, ≥16 GB): phục vụ mô hình 16-bit có LoRA mà không cần gộp:
 #
 # ```bash
 # vllm serve models/sft-merged --enable-lora --lora-modules dpo=adapters/dpo \
 #   --max-model-len 2048 --port 8000
 # ```
 #
-# Gọi API với `"model": "dpo"`. vLLM giữ process và GPU, nên chạy ở terminal riêng.
+# Gọi API với `"model": "dpo"`. vLLM giữ tiến trình và GPU, nên chạy ở cửa sổ dòng lệnh riêng.
 #
-# **Next:** NB6 (benchmark) hoặc `make verify`.
+# **Tiếp theo:** NB6 (benchmark) hoặc `make verify`.

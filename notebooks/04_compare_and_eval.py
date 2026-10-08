@@ -7,17 +7,17 @@
 # %% [markdown]
 # # NB4 — So sánh SFT và SFT+DPO
 #
-# > **Mục tiêu:** đo xem DPO có thay đổi hành vi không, trên prompt **chưa từng train**:
-# > - 8 prompt cố định (4 hữu ích, 4 an toàn) để đọc bằng mắt;
-# > - `JUDGE_PROMPTS` prompt (≥50) lấy từ tập eval held-out của NB2.
+# > **Mục tiêu:** đo xem DPO có thay đổi hành vi không, trên câu hỏi **chưa từng huấn luyện**:
+# > - 8 câu hỏi cố định (4 hữu ích, 4 an toàn) để đọc bằng mắt;
+# > - `JUDGE_PROMPTS` câu hỏi (≥ 50) lấy từ tập eval held-out của NB2.
 # >
-# > **Judge (tự động, không cần API key):** mặc định là hội đồng reward model chạy local, khác họ
+# > **Giám khảo (tự động, không cần API key):** mặc định là hội đồng mô hình reward chạy local, khác họ
 # > nhau (`JUDGE_RM_MODELS`). RM chấm điểm từng câu trả lời riêng, nên không có thiên vị vị trí A/B.
 # > Mỗi RM phải qua bộ kiểm tra 12 cặp tiếng Việt hiển nhiên (≥ 80% đúng); DPO chỉ thắng một cặp
 # > khi mọi RM đồng ý.
-# > Tuỳ chọn: judge API (`JUDGE_PROVIDER=gemini|openai|anthropic` + `JUDGE_MODEL`) chấm mỗi cặp
+# > Tuỳ chọn: giám khảo qua API (`JUDGE_PROVIDER=gemini|openai|anthropic` + `JUDGE_MODEL`) chấm mỗi cặp
 # > **hai lần** đổi chỗ A/B; lệch nhau tính hoà.
-# > Cả hai đều báo khoảng tin cậy 95% (bootstrap), tỉ lệ "câu dài hơn thắng" và win rate trên
+# > Cả hai đều báo khoảng tin cậy 95% (bootstrap), tỉ lệ "câu dài hơn thắng" và tỉ lệ thắng trên
 # > các cặp dài gần bằng nhau, để phát hiện thiên vị độ dài.
 
 # %%
@@ -77,7 +77,7 @@ PROMPTS = FIXED_PROMPTS + heldout
 print(f"{len(FIXED_PROMPTS)} fixed + {len(heldout)} held-out prompts")
 
 # %% [markdown]
-# ## 1. Sinh câu trả lời (greedy, cùng cấu hình cho cả hai model)
+# ## 1. Sinh câu trả lời (greedy, tức giải mã tham lam, cùng cấu hình cho cả hai mô hình)
 
 # %%
 texts = [p["prompt"] for p in PROMPTS]
@@ -103,7 +103,7 @@ OUTPUTS_SHA = hashlib.sha256((C.EVAL_DIR / "side_by_side.jsonl").read_bytes()).h
 print(f"mean chars  SFT {sum(map(len, sft_out)) / len(sft_out):.0f}   DPO {sum(map(len, dpo_out)) / len(dpo_out):.0f}")
 
 # %% [markdown]
-# ## 2. Bảng 8 prompt cố định (deliverable `04-side-by-side-table.png`)
+# ## 2. Bảng 8 câu hỏi cố định (sản phẩm nộp `04-side-by-side-table.png`)
 
 # %%
 import textwrap
@@ -133,26 +133,26 @@ plt.show()
 # %% [markdown]
 # ## 3. Chấm tự động
 #
-# **Hội đồng reward model (mặc định).** Hai model sinh câu trả lời đã được giải phóng ở §1; các RM
+# **Hội đồng mô hình reward (mặc định).** Hai mô hình sinh câu trả lời đã được giải phóng ở §1; các RM
 # được nạp **lần lượt**, nên mỗi RM chỉ cần vừa T4 một mình.
 #
 # Vì sao không dùng một RM? Nhãn chosen/rejected của `sea-ultrafeedback-onpolicy` do
-# `Skywork-Reward-Gemma-2-27B` gán, trên câu trả lời do Sailor2 (gốc Qwen2.5) sinh ra. Judge có
-# quan hệ với model gán nhãn hoặc model sinh dữ liệu (cùng lab, cùng họ) có xu hướng chấm cao model
-# học từ dữ liệu đó: *preference leakage* (Li et al., ICLR 2026). Cách giảm: thêm judge khác họ và
-# chỉ tính DPO thắng khi **mọi** judge đồng ý (hội đồng, Verga et al. 2024); bất đồng tính hoà.
+# `Skywork-Reward-Gemma-2-27B` gán, trên câu trả lời do Sailor2 (gốc Qwen2.5) sinh ra. Giám khảo có
+# quan hệ với mô hình gán nhãn hoặc mô hình sinh dữ liệu (cùng lab, cùng họ) có xu hướng chấm cao mô hình
+# học từ dữ liệu đó: *rò rỉ sở thích (preference leakage)* (Li et al., ICLR 2026). Cách giảm: thêm giám khảo khác họ và
+# chỉ tính DPO thắng khi **mọi** giám khảo đồng ý (hội đồng, Verga et al. 2024); bất đồng tính hoà.
 #
-# Hội đồng mặc định: `Skywork-Reward-V2-Qwen3-4B` (cùng họ Qwen với Sailor2 và với policy) và
-# `Skywork-Reward-V2-Llama-3.2-3B` (base Llama, không chung base với model sinh dữ liệu hay RM gán
-# nhãn). Cả hai là Skywork V2, train trên SynPref-40M chứ không phải dữ liệu của RM gán nhãn, nhưng
+# Hội đồng mặc định: `Skywork-Reward-V2-Qwen3-4B` (cùng họ Qwen với Sailor2 và với mô hình đang học (policy)) và
+# `Skywork-Reward-V2-Llama-3.2-3B` (nền Llama, không chung mô hình nền với mô hình sinh dữ liệu hay RM gán
+# nhãn). Cả hai là Skywork V2, huấn luyện trên SynPref-40M chứ không phải dữ liệu của RM gán nhãn, nhưng
 # vẫn **cùng lab** với RM gán nhãn: đây là hạn chế còn lại. Chưa có RM nhỏ ngoài Skywork đọc tốt
 # tiếng Việt (InternLM2-1.8B-reward không nạp được với transformers 5). Đo trên 100 cặp tiếng Việt của
-# sailor2 (T4): cả hai xếp đúng 12/12 cặp sanity; đồng ý với nhãn sailor2 88% (Qwen3) và 84% (Llama);
-# đồng ý với nhau 82%. `per_judge` và `judge_agreement` cho thấy hai judge lệch nhau trên output của bạn.
+# sailor2 (T4): cả hai xếp đúng 12/12 cặp kiểm tra nhanh; đồng ý với nhãn sailor2 88% (Qwen3) và 84% (Llama);
+# đồng ý với nhau 82%. `per_judge` và `judge_agreement` cho thấy hai giám khảo lệch nhau trên đầu ra của bạn.
 #
-# RM nào trượt bộ sanity tiếng Việt (< 80%) bị loại khỏi hội đồng, trừ khi tất cả đều trượt.
+# RM nào trượt bộ kiểm tra nhanh tiếng Việt (< 80%) bị loại khỏi hội đồng, trừ khi tất cả đều trượt.
 #
-# **Judge API (tuỳ chọn).** Đặt `JUDGE_PROVIDER` + `JUDGE_MODEL` + key. Thiếu key thì notebook
+# **Giám khảo qua API (tuỳ chọn).** Đặt `JUDGE_PROVIDER` + `JUDGE_MODEL` + key. Thiếu key thì notebook
 # quay về hội đồng RM, không dừng. Chạy lần lượt cả hai: kết quả lưu riêng (`judge_results_rm.json`,
 # `judge_results_api.json`) và §4 báo tỉ lệ đồng ý (`cross_judge`) nếu cả hai chấm cùng một
 # `side_by_side.jsonl` (sinh greedy nên thường trùng giữa các lần chạy).
@@ -231,14 +231,14 @@ print(json.dumps(summary, ensure_ascii=False, indent=2))
 # ## 5. Đọc kết quả
 #
 # - Khoảng tin cậy chứa 0.5 ⇒ chưa đủ bằng chứng DPO tốt hơn SFT.
-# - `sanity_accuracy` < 0.8 ⇒ RM không đọc tốt tiếng Việt, đừng tin win rate.
-# - `per_judge`: win rate của từng RM trên held-out. judge Qwen3 cho DPO thắng cao hơn hẳn judge Llama ⇒ dấu hiệu
-#   preference leakage; tin win rate của hội đồng (bảo thủ) hơn. `judge_agreement` thấp ⇒ RM bất đồng nhiều.
+# - `sanity_accuracy` < 0.8 ⇒ RM không đọc tốt tiếng Việt, đừng tin tỉ lệ thắng.
+# - `per_judge`: tỉ lệ thắng của từng RM trên held-out. Giám khảo Qwen3 cho DPO thắng cao hơn hẳn giám khảo Llama ⇒ dấu hiệu
+#   rò rỉ sở thích (preference leakage); tin tỉ lệ thắng của hội đồng (bảo thủ) hơn. `judge_agreement` thấp ⇒ RM bất đồng nhiều.
 # - `longer_answer_won_frac` gần 1 và DPO dài hơn SFT ⇒ có thể DPO chỉ học viết dài (so với NB2 §2).
 #   Xem thêm `length_matched_win_rate` (chỉ các cặp dài gần bằng nhau) và `score_length_spearman`
 #   (điểm RM tương quan với độ dài; gần 1 là RM đang chấm độ dài).
-# - Judge API: `position_consistency` thấp ⇒ judge thiếu ổn định; `n_failed` > 0 ⇒ judge trả lời
+# - Giám khảo qua API: `position_consistency` thấp ⇒ giám khảo thiếu ổn định; `n_failed` > 0 ⇒ giám khảo trả lời
 #   sai định dạng, các cặp đó bị loại, không tính hoà.
-# - +4 rigor: chạy thêm judge API khác họ (ví dụ `JUDGE_PROVIDER=gemini`) và báo `cross_judge.agreement`.
+# - +4 độ chặt chẽ: chạy thêm giám khảo qua API khác họ (ví dụ `JUDGE_PROVIDER=gemini`) và báo `cross_judge.agreement`.
 #
-# **Next:** NB5 (GGUF) hoặc NB6 (benchmark).
+# **Tiếp theo:** NB5 (GGUF) hoặc NB6 (benchmark).

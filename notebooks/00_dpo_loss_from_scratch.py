@@ -5,14 +5,14 @@
 # ---
 
 # %% [markdown]
-# # NB0 — DPO loss from scratch (CPU, ~10 phút)
+# # NB0 — DPO loss tự cài từ đầu (CPU, ~10 phút)
 #
 # **Không cần GPU.** Trước khi gọi `DPOTrainer`, bạn tự viết loss và kiểm tra nó
 # trên số liệu đồ chơi. Phần này lấy từ lab K3 (tự cài DPO) và là nền để đọc
-# reward curve ở NB3.
+# đường cong reward ở NB3.
 #
 # Bạn sẽ thấy:
-# 1. Tại bước 0 (policy = reference) loss luôn bằng `log 2 ≈ 0.693`.
+# 1. Tại bước 0 (mô hình đang học (policy) = reference) loss luôn bằng `log 2 ≈ 0.693`.
 # 2. Gradient của DPO bị nhân với `sigmoid(-margin)`: cặp đã phân biệt tốt gần như không còn được học.
 # 3. **Likelihood displacement**: loss vẫn giảm khi log-prob của *chosen* giảm, miễn rejected giảm nhanh hơn.
 # 4. IPO, RPO, SimPO, ORPO khác DPO ở đâu, trên cùng một bộ số.
@@ -36,7 +36,7 @@ torch.manual_seed(0)
 # ## 1. Log-prob của một câu trả lời
 #
 # `log π(y|x) = Σ_t log π(y_t | x, y_<t)`, chỉ cộng trên token của câu trả lời
-# (mask = 1), không cộng trên prompt.
+# (mask = 1), không cộng trên câu hỏi.
 
 # %%
 vocab, length = 8, 5
@@ -53,7 +53,7 @@ print(f"sum log p = {total.item():.3f}   mean log p = {mean.item():.3f}")
 #
 # $$\mathcal{L} = -\log\sigma\Big(\beta\big[(\log\pi_\theta(y_w) - \log\pi_{ref}(y_w)) - (\log\pi_\theta(y_l) - \log\pi_{ref}(y_l))\big]\Big)$$
 #
-# Điền hàm dưới đây. Cell kiểm tra sẽ so với bản tham chiếu trong `lab22/dpo_math.py`.
+# Điền hàm dưới đây. Ô kiểm tra sẽ so với bản tham chiếu trong `lab22/dpo_math.py`.
 
 
 # %%
@@ -75,11 +75,11 @@ else:
     print(f"✓ Khớp tham chiếu: {ref_loss.item():.4f}")
 
 # %% [markdown]
-# ## 3. Bước 0: policy = reference ⇒ loss = log 2
+# ## 3. Bước 0: mô hình đang học (policy) = reference ⇒ loss = log 2
 #
-# NB3 khởi tạo policy bằng chính model SFT (LoRA mới có trọng số B = 0), nên
+# NB3 khởi tạo mô hình đang học (policy) bằng chính mô hình SFT (LoRA mới có trọng số B = 0), nên
 # reward ngầm định ban đầu bằng 0 và loss bắt đầu ở 0.693. Nếu log của bạn
-# không bắt đầu gần 0.693, reference đang không phải model SFT.
+# không bắt đầu gần 0.693, reference đang không phải mô hình SFT.
 
 # %%
 same = torch.tensor([-20.0, -35.0])
@@ -124,15 +124,15 @@ for name, (pc_, pr_) in scenarios.items():
 # %% [markdown]
 # ## 6. Bốn biến thể trên cùng một cặp
 #
-# | Loss | Cần reference? | Chuẩn hoá độ dài? | Ghi chú |
+# | Loss | Cần mô hình tham chiếu (reference)? | Chuẩn hoá độ dài? | Ghi chú |
 # |---|---|---|---|
-# | DPO (sigmoid) | có | không | baseline |
-# | IPO | có | có (TRL chia theo số token) | hồi quy margin về 1/(2β), chống overfit khi dữ liệu gần-deterministic |
+# | DPO (sigmoid) | có | không | mức cơ sở (baseline) |
+# | IPO | có | có (TRL chia theo số token) | hồi quy margin về 1/(2β), chống quá khớp khi dữ liệu gần như tất định |
 # | RPO | có | không | DPO + NLL(chosen), giảm likelihood displacement |
 # | SimPO | không | có | log-prob trung bình + margin γ |
-# | ORPO | không | có | NLL(chosen) + λ·log-odds-ratio, gộp SFT và preference vào một bước |
+# | ORPO | không | có | NLL(chosen) + λ·log-odds-ratio, gộp SFT và sở thích vào một bước |
 #
-# NB3b train thật các biến thể này (TRL `loss_type` và `trl.experimental.orpo`).
+# NB3b huấn luyện thật các biến thể này (TRL `loss_type` và `trl.experimental.orpo`).
 
 # %%
 n_tokens_c, n_tokens_r = 40, 120  # chosen ngắn, rejected dài
@@ -145,6 +145,6 @@ print(f"SimPO {M.simpo_loss(avg_c, avg_r).item():.4f}")
 print(f"ORPO  {M.orpo_loss(avg_c, avg_r, -avg_c).item():.4f}")
 
 # %% [markdown]
-# **Câu hỏi cho REFLECTION §3:** sum log-prob của câu dài luôn âm hơn câu ngắn.
+# **Câu hỏi cho REFLECTION §3:** tổng log-prob của câu dài luôn âm hơn câu ngắn.
 # Vì sao điều đó khiến DPO gốc dễ thiên vị độ dài, và SimPO/ORPO xử lý bằng cách nào?
 # Gợi ý: NB2 in ra tỉ lệ cặp có chosen dài hơn rejected trong dữ liệu tiếng Việt.

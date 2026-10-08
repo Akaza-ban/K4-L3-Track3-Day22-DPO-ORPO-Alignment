@@ -5,22 +5,22 @@
 # ---
 
 # %% [markdown]
-# # NB3b — So sánh các biến thể: DPO · RPO · DPO chuẩn hoá độ dài · LD-DPO · ORPO (OPTIONAL, +8)
+# # NB3b — So sánh các biến thể: DPO · RPO · DPO chuẩn hoá độ dài · LD-DPO · ORPO (TUỲ CHỌN, +8)
 #
 # Cùng dữ liệu (`VARIANT_TRAIN` cặp đầu của NB2), cùng số bước, cùng LoRA. Chỉ đổi loss.
 #
 # | Run | Cấu hình TRL | Ý tưởng |
 # |---|---|---|
-# | `dpo` | `loss_type=["sigmoid"]` | baseline |
+# | `dpo` | `loss_type=["sigmoid"]` | mức cơ sở (baseline) |
 # | `rpo` | `loss_type=["sigmoid","sft"]` | thêm NLL trên chosen, chống likelihood displacement |
 # | `dpo_norm` | `loss_type=["sigmoid_norm"]` | log-prob trung bình theo token (gần SimPO nhưng vẫn có reference) |
 # | `ld_dpo` | `ld_alpha=0.5` | giảm trọng số phần token vượt quá độ dài chung (LD-DPO) |
 # | `orpo` | `trl.experimental.orpo` | không reference, SFT + odds-ratio trong một bước |
 #
-# ORPO thường xuất phát từ model *chưa* SFT; ở đây nó chạy trên cùng `models/sft-merged`
+# ORPO thường xuất phát từ mô hình *chưa* SFT; ở đây nó chạy trên cùng `models/sft-merged`
 # để bảng so sánh chỉ khác nhau ở loss. Đặt `ORPO_FROM_BASE=1` để thử ORPO từ base.
 #
-# **Đọc kết quả:** reward accuracy trên held-out và độ dài output trung bình. Các
+# **Đọc kết quả:** độ chính xác reward trên held-out và độ dài đầu ra trung bình. Các
 # biến thể có thang reward khác nhau, nên **không so trực tiếp giá trị margin** giữa các dòng.
 
 # %%
@@ -140,7 +140,7 @@ if "orpo" in SELECTED:
     MD.cleanup()
 
 # %% [markdown]
-# ## 3. Bảng tổng hợp (deliverable `03b-variants.png`)
+# ## 3. Bảng tổng hợp (sản phẩm nộp `03b-variants.png`)
 
 # %%
 import matplotlib.pyplot as plt
@@ -163,7 +163,7 @@ plt.show()
 # %% [markdown]
 # ## 4. Câu hỏi cho REFLECTION
 #
-# 1. Biến thể nào làm output dài ra nhiều nhất? Có khớp với tỉ lệ "chosen dài hơn" ở NB2 không?
+# 1. Biến thể nào làm đầu ra dài ra nhiều nhất? Có khớp với tỉ lệ "chosen dài hơn" ở NB2 không?
 # 2. RPO có giữ `rewards/chosen` dương trong khi DPO thì không? (so với chẩn đoán NB3)
-# 3. Reward accuracy cao hơn có nghĩa là model tốt hơn không? Chạy NB4 judge trên
+# 3. Độ chính xác reward cao hơn có nghĩa là mô hình tốt hơn không? Chạy giám khảo ở NB4 trên
 #    adapter `adapters/variants/<name>` (đặt `DPO_ADAPTER_OVERRIDE`) để kiểm tra.

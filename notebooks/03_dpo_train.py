@@ -5,21 +5,21 @@
 # ---
 
 # %% [markdown]
-# # NB3 — DPO training (notebook chính)
+# # NB3 — Huấn luyện DPO (notebook chính)
 #
-# **Stack:** TRL 1.13 `DPOTrainer`, LoRA mới trên model SFT đã merge, β=0.1, lr=5e-6.
+# **Công nghệ:** TRL 1.13 `DPOTrainer`, LoRA mới trên mô hình SFT đã gộp, β=0.1, lr=5e-6.
 #
-# > **Mục tiêu:** train adapter DPO, vẽ **riêng** hai đường `rewards/chosen` và
-# > `rewards/rejected` trên cả tập train và tập held-out, rồi tự chẩn đoán xem margin
+# > **Mục tiêu:** huấn luyện adapter DPO, vẽ **riêng** hai đường `rewards/chosen` và
+# > `rewards/rejected` trên cả tập huấn luyện và tập held-out, rồi tự chẩn đoán xem margin
 # > tăng theo kiểu nào (NB0 §5).
 #
 # **Ba thay đổi so với lab cũ, đều ảnh hưởng tới kết quả:**
-# 1. **Reference = model SFT.** Lab cũ chồng LoRA DPO lên LoRA SFT rồi để TRL tắt
-#    adapter để lấy reference, tức là so với *base model*. Ở đây policy là
+# 1. **Mô hình tham chiếu (reference) = mô hình SFT.** Lab cũ chồng LoRA DPO lên LoRA SFT rồi để TRL tắt
+#    adapter để lấy reference, tức là so với *mô hình gốc*. Ở đây mô hình đang học (policy) là
 #    `models/sft-merged` + LoRA mới (khởi tạo bằng 0), và
 #    `precompute_ref_log_probs=True` chấm mọi cặp trước bước cập nhật đầu tiên.
-# 2. **lr = 5e-6.** 5e-7 là mức cho full fine-tune; với LoRA và ~100 bước, reward gần như đứng yên.
-# 3. **Eval held-out.** Cặp eval không trùng prompt với train (NB2).
+# 2. **lr = 5e-6.** 5e-7 là mức cho tinh chỉnh toàn bộ; với LoRA và ~100 bước, reward gần như đứng yên.
+# 3. **Eval held-out.** Cặp eval không trùng câu hỏi với huấn luyện (NB2).
 
 # %%
 import sys
@@ -42,10 +42,10 @@ C.ensure_dirs()
 print(C.summary())
 
 # %% [markdown]
-# ## 1. Policy = SFT đã merge + LoRA mới
+# ## 1. Mô hình đang học (policy) = SFT đã gộp + LoRA mới
 #
-# Không có model thứ hai trong VRAM. Log-prob của reference được tính một lần
-# trước khi train (lúc LoRA còn bằng 0) rồi lưu lại, nên phần VRAM tăng thêm so
+# Không có mô hình thứ hai trong VRAM. Log-prob của reference được tính một lần
+# trước khi huấn luyện (lúc LoRA còn bằng 0) rồi lưu lại, nên phần VRAM tăng thêm so
 # với SFT chủ yếu đến từ việc giữ cả câu chosen lẫn rejected trong một batch.
 
 # %%
@@ -59,7 +59,7 @@ eval_ds = Dataset.from_parquet(str(C.PREF_DIR / "eval.parquet"))
 print(f"train={len(train_ds)} eval={len(eval_ds)}  columns={train_ds.column_names}")
 
 # %% [markdown]
-# ## 2. Train
+# ## 2. Huấn luyện
 
 # %%
 from trl import DPOTrainer
@@ -82,7 +82,7 @@ print(f"train loss {result.training_loss:.4f} · held-out reward accuracy "
       f"{final_eval.get('eval_rewards/accuracies', float('nan')):.3f}")
 
 # %% [markdown]
-# ## 3. Reward curves (deliverable `03-dpo-reward-curves.png`)
+# ## 3. Đường cong reward (sản phẩm nộp `03-dpo-reward-curves.png`)
 #
 # Implicit reward = β·log(π/π_ref) nên bắt đầu ở 0. Đọc đường *chosen*, không chỉ margin:
 # - chosen ↑, rejected ↓ → đúng ý đồ;
@@ -142,12 +142,12 @@ metrics = {
 print(json.dumps(metrics, indent=2))
 
 # %% [markdown]
-# ## 5. Vibe-coding callout: β sweep (+6 rigor)
+# ## 5. Ghi chú vibe-coding: quét β (+6 độ chặt chẽ)
 #
 # `make beta-sweep` chạy `scripts/train_dpo.py` với β ∈ {0.05, 0.1, 0.5} và lưu vào
 # `adapters/dpo-b*/`. `python scripts/eval_judge.py --plot-sweep` vẽ β theo margin held-out.
 #
-# **Đoán trước khi xem:** β lớn giữ policy gần reference hơn. Margin tính bằng β·log-ratio
-# sẽ thay đổi thế nào? Còn reward accuracy?
+# **Đoán trước khi xem:** β lớn giữ mô hình đang học (policy) gần reference hơn. Margin tính bằng β·log-ratio
+# sẽ thay đổi thế nào? Còn độ chính xác reward?
 #
-# **Next:** NB3b (so sánh RPO / SimPO-norm / LD-DPO / ORPO) hoặc NB4 (đánh giá).
+# **Tiếp theo:** NB3b (so sánh RPO / SimPO-norm / LD-DPO / ORPO) hoặc NB4 (đánh giá).

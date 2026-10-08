@@ -23,7 +23,7 @@ NOTEBOOKS = [
     "07_grpo_bonus",
 ]
 CORE_SCREENSHOTS = ["02-sft-loss", "02b-pref-length", "03-dpo-reward-curves", "04-side-by-side-table"]
-HEADER_MARKERS = [r"<Họ Tên>", r"<A20-K4 / \.\.\.>", r"<YYYY-MM-DD>", r"<e\.g\., Colab T4"]
+HEADER_MARKERS = [r"<Họ Tên>", r"<A20-K4 / \.\.\.>", r"<YYYY-MM-DD>", r"<e\.g\., Colab T4", r"<ví dụ: Colab T4"]
 ANSWER_PLACEHOLDER = "_Trả lời ở đây._"
 CORE_SECTIONS = ("1", "2", "3", "4", "6")  # §5, §7–§9 belong to bonus work
 MIN_HELDOUT_JUDGED = 50

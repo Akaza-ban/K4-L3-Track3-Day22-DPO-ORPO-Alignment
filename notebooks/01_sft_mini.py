@@ -5,16 +5,16 @@
 # ---
 
 # %% [markdown]
-# # NB1 — SFT-mini: checkpoint SFT tiếng Việt làm điểm xuất phát cho DPO
+# # NB1 — SFT-mini: mô hình SFT tiếng Việt (checkpoint) làm điểm xuất phát cho DPO
 #
-# **Stack:** Unsloth + LoRA r=16 trên Qwen3-4B-Instruct-2507 (4-bit) + 1k VN Alpaca, 1 epoch.
+# **Công nghệ:** Unsloth + LoRA r=16 trên Qwen3-4B-Instruct-2507 (4-bit) + 1k VN Alpaca, 1 epoch.
 #
-# > **Mục tiêu:** tạo model SFT để DPO align tiếp. Notebook lưu hai thứ:
+# > **Mục tiêu:** tạo mô hình SFT để DPO align tiếp. Notebook lưu hai thứ:
 # > - `adapters/sft-mini/`: LoRA adapter (nhẹ, để nộp bài);
-# > - `models/sft-merged/`: SFT đã merge vào trọng số 16-bit. **NB3 train DPO trên model này**,
-# >   nên reference của DPO chính là model SFT (lab cũ dùng nhầm base model làm reference).
+# > - `models/sft-merged/`: SFT đã gộp vào trọng số 16-bit. **NB3 huấn luyện DPO trên mô hình này**,
+# >   nên reference của DPO chính là mô hình SFT (lab cũ dùng nhầm mô hình gốc làm reference).
 # >
-# > Model gốc đã là bản instruct, nên SFT ở đây chủ yếu kéo phong cách trả lời về
+# > Mô hình gốc đã là bản instruct, nên SFT ở đây chủ yếu kéo phong cách trả lời về
 # > tiếng Việt kiểu Alpaca. Loss chỉ tính trên phần trả lời (`train_on_responses_only`).
 
 # %%
@@ -35,7 +35,7 @@ C.ensure_dirs()
 print(C.summary())
 
 # %% [markdown]
-# ## 1. Load model 4-bit + LoRA
+# ## 1. Nạp mô hình 4-bit + LoRA
 
 # %%
 model, tokenizer = MD.load_model(C.BASE_MODEL)
@@ -69,7 +69,7 @@ ds = ds.map(to_text, remove_columns=ds.column_names)
 print(ds[0]["text"][:400])
 
 # %% [markdown]
-# ## 3. Train (loss chỉ trên phần trả lời)
+# ## 3. Huấn luyện (loss chỉ trên phần trả lời)
 
 # %%
 from trl import SFTConfig, SFTTrainer
@@ -122,7 +122,7 @@ fig.savefig(C.SCREENSHOTS / "02-sft-loss.png", dpi=120, bbox_inches="tight")
 plt.show()
 
 # %% [markdown]
-# ## 4. Lưu adapter + model SFT đã merge
+# ## 4. Lưu adapter + mô hình SFT đã gộp
 
 # %%
 model.save_pretrained(str(C.SFT_ADAPTER))
@@ -135,10 +135,10 @@ sample = MD.generate(model, tokenizer, ["Giải thích ngắn gọn (3-4 câu) t
 print(sample[0])
 
 # %% [markdown]
-# ## 5. Vibe-coding callout
+# ## 5. Ghi chú vibe-coding
 #
 # > **Cần bao nhiêu SFT để DPO có ý nghĩa?** Thử `SFT_SLICE=100` rồi chạy lại NB1 → NB3.
 # > Margin ở NB3 còn tăng không? Câu trả lời còn mạch lạc không? Ghi giả thuyết trước
 # > khi chạy, kết quả vào `submission/REFLECTION.md` §6.
 #
-# **Next:** NB2 — dữ liệu preference tiếng Việt.
+# **Tiếp theo:** NB2 — dữ liệu sở thích (preference) tiếng Việt.

@@ -5,18 +5,18 @@
 # ---
 
 # %% [markdown]
-# # NB2 — Preference data tiếng Việt
+# # NB2 — Dữ liệu sở thích (preference) tiếng Việt
 #
-# **Dataset mặc định:** `sailor2/sea-ultrafeedback-onpolicy`, lọc `language == "Vietnamese"`
-# (khoảng 4.1k cặp). Lab cũ train DPO trên UltraFeedback tiếng Anh trong khi SFT và
+# **Bộ dữ liệu mặc định:** `sailor2/sea-ultrafeedback-onpolicy`, lọc `language == "Vietnamese"`
+# (khoảng 4.1k cặp). Lab cũ huấn luyện DPO trên UltraFeedback tiếng Anh trong khi SFT và
 # đánh giá đều bằng tiếng Việt, nên khó đọc hiệu ứng của DPO.
 #
 # > **Mục tiêu:** đưa dữ liệu về dạng hội thoại của TRL
 # > (`prompt`/`chosen`/`rejected` là list message), lọc cặp vượt `MAX_LEN`,
-# > chia **train/eval không trùng prompt**, đo thiên vị độ dài, lưu Parquet.
+# > chia **tập huấn luyện/eval không trùng câu hỏi**, đo thiên vị độ dài, lưu Parquet.
 # >
-# > **License:** dataset không ghi license. Nguồn gốc là UltraFeedback (prompt) và
-# > phản hồi do model sinh rồi được chấm, nên chỉ dùng cho học tập và nghiên cứu.
+# > **Giấy phép:** bộ dữ liệu không ghi giấy phép. Nguồn gốc là UltraFeedback (câu hỏi) và
+# > phản hồi do mô hình sinh rồi được chấm, nên chỉ dùng cho học tập và nghiên cứu.
 # > Đặt `PREF_DATASET=argilla/ultrafeedback-binarized-preferences-cleaned PREF_LANGUAGE=`
 # > để chạy lại bản tiếng Anh làm đối chứng.
 
@@ -39,7 +39,7 @@ print(C.summary())
 tokenizer = AutoTokenizer.from_pretrained(C.BASE_MODEL)
 
 # %% [markdown]
-# ## 1. Load, lọc, chia train/eval theo prompt
+# ## 1. Nạp, lọc, chia huấn luyện/eval theo câu hỏi
 
 # %%
 train_ds, eval_ds = D.load_preference_pairs(
@@ -60,7 +60,7 @@ print(train_ds[0])
 # ## 2. Thiên vị độ dài
 #
 # Nếu phần lớn `chosen` dài hơn `rejected`, DPO có thể học "viết dài hơn" thay vì
-# "trả lời tốt hơn". Ghi con số này vào REFLECTION và so với độ dài output ở NB4.
+# "trả lời tốt hơn". Ghi con số này vào REFLECTION và so với độ dài đầu ra ở NB4.
 
 # %%
 def n_tokens(text: str) -> int:
@@ -101,11 +101,11 @@ eval_ds.to_parquet(str(C.PREF_DIR / "eval.parquet"))
 print(f"Saved {len(train_ds)} train / {len(eval_ds)} eval pairs → {C.PREF_DIR}")
 
 # %% [markdown]
-# ## 4. Vibe-coding callout
+# ## 4. Ghi chú vibe-coding
 #
 # Mở 5 cặp ngẫu nhiên và tự chấm: bạn có đồng ý với nhãn `chosen` không? Khoảng 1%
-# câu `chosen` trong bộ này lẫn tiếng Anh hoặc mất dấu, một số prompt là bài code.
+# câu `chosen` trong bộ này lẫn tiếng Anh hoặc mất dấu, một số câu hỏi là bài code.
 # Nếu bạn lọc thêm (ví dụ bỏ cặp lệch độ dài > 2×), ghi lại số cặp còn lại và lý do
-# vào REFLECTION. `BONUS-CHALLENGE.md` #1 gợi ý tự xây dữ liệu preference tiếng Việt gốc.
+# vào REFLECTION. `BONUS-CHALLENGE.md` #1 gợi ý tự xây dữ liệu sở thích (preference) tiếng Việt gốc.
 #
-# **Next:** NB3 — train DPO.
+# **Tiếp theo:** NB3 — huấn luyện DPO.

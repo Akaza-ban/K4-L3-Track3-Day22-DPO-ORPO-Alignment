@@ -5,23 +5,23 @@
 # ---
 
 # %% [markdown]
-# # NB6 — Benchmark SFT vs SFT+DPO bằng lm-eval (OPTIONAL, bonus)
+# # NB6 — Đánh giá chuẩn (benchmark) SFT vs SFT+DPO bằng lm-eval (TUỲ CHỌN, thưởng điểm)
 #
-# **Stack:** `lm-eval` 0.4.13 trên model 16-bit: `models/sft-merged` (SFT) và
+# **Công nghệ:** `lm-eval` 0.4.13 trên mô hình 16-bit: `models/sft-merged` (SFT) và
 # `models/sft-merged` + `peft=adapters/dpo` (SFT+DPO).
 #
 # Ba lỗi của bản cũ đã sửa:
-# 1. **Chat template.** Model chat bị chấm như model base (không template) thì điểm
+# 1. **Chat template.** Mô hình chat bị chấm như mô hình base (không template) thì điểm
 #    IFEval/GSM8K không phản ánh cách nó được dùng. Ở đây truyền `--apply_chat_template`
 #    và `--fewshot_as_multiturn`.
 # 2. **`--limit` tính theo từng subtask.** `--limit 500` trên nhóm `mmlu` (57 môn) là
 #    ~28k câu, không phải 500. Limit MMLU ở đây được đặt *theo môn*.
-# 3. **AlpacaEval-lite bị bỏ.** `tatsu-lab/alpaca_eval` là dataset dạng script, không
-#    load được với `datasets` ≥ 4. Đánh giá theo kiểu judge đã có ở NB4.
+# 3. **AlpacaEval-lite bị bỏ.** `tatsu-lab/alpaca_eval` là bộ dữ liệu dạng script, không
+#    nạp được với `datasets` ≥ 4. Đánh giá theo kiểu giám khảo đã có ở NB4.
 #
 # Thêm `global_mmlu_full_vi` (MMLU dịch tiếng Việt, có kiểm duyệt) vì lab là tiếng Việt.
 #
-# > Điểm có thể **giảm** sau DPO (alignment tax). Với limit nhỏ, chênh lệch ±2–3 điểm
+# > Điểm có thể **giảm** sau DPO (alignment tax, tức thuế căn chỉnh). Với limit nhỏ, chênh lệch ±2–3 điểm
 # > thường nằm trong nhiễu: xem cột `stderr` trước khi kết luận.
 
 # %%
@@ -103,7 +103,7 @@ for name, (task, shots, limit, metric) in BENCHMARKS.items():
     print(row)
 
 # %% [markdown]
-# ## 3. Biểu đồ (deliverable `07-benchmark-comparison.png`)
+# ## 3. Biểu đồ (sản phẩm nộp `07-benchmark-comparison.png`)
 
 # %%
 import matplotlib.pyplot as plt
@@ -140,7 +140,7 @@ print("Saved data/eval/benchmark_results.json")
 #
 # 1. |Δ| có lớn hơn ~2× stderr không? Nếu không, đừng gọi là "tăng" hay "giảm".
 # 2. IFEval đo khả năng làm đúng định dạng: DPO trên dữ liệu chat thường giúp hoặc giữ nguyên.
-# 3. GSM8K giảm ⇒ alignment tax; NB7 (GRPO với reward kiểm chứng được) là một cách lấy lại.
+# 3. GSM8K giảm ⇒ alignment tax (thuế căn chỉnh); NB7 (GRPO với reward kiểm chứng được) là một cách lấy lại.
 # 4. Global-MMLU-vi gần như phẳng là bình thường: DPO không dạy kiến thức mới.
 #
-# **Next:** NB7 (GRPO, bonus) hoặc `make verify`.
+# **Tiếp theo:** NB7 (GRPO, thưởng điểm) hoặc `make verify`.
